@@ -28,19 +28,16 @@ async def setup_database():
     # Seed default categories for tests
     from app.database import DEFAULT_CATEGORIES
     from app.models.statements import Category
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
     async with test_session() as db:
         for cat_data in DEFAULT_CATEGORIES:
-            stmt = sqlite_insert(Category).values(
+            db.add(Category(
                 name=cat_data["name"],
                 color=cat_data["color"],
                 icon=cat_data["icon"],
                 is_default=True,
                 user_id=None,
-            )
-            stmt = stmt.on_conflict_do_nothing()
-            await db.execute(stmt)
+            ))
         await db.commit()
 
     yield
