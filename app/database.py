@@ -19,9 +19,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-
 DEFAULT_CATEGORIES = [
     {"name": "Alimentação", "color": "#FF6B6B", "icon": "utensils"},
     {"name": "Moradia", "color": "#4ECDC4", "icon": "home"},
@@ -38,22 +35,18 @@ async def seed_default_categories():
 
     async with async_session() as db:
         for cat_data in DEFAULT_CATEGORIES:
-            # Check if default category already exists (user_id IS NULL)
             result = await db.execute(
                 select(Category).where(
                     Category.name == cat_data["name"],
                     Category.user_id.is_(None)
                 )
             )
-            existing = result.scalar_one_or_none()
-
-            if not existing:
-                stmt = sqlite_insert(Category).values(
+            if not result.scalar_one_or_none():
+                db.add(Category(
                     name=cat_data["name"],
                     color=cat_data["color"],
                     icon=cat_data["icon"],
                     is_default=True,
                     user_id=None,
-                )
-                await db.execute(stmt)
+                ))
         await db.commit()
