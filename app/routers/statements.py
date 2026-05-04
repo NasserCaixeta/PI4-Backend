@@ -18,7 +18,7 @@ from app.services.gemini import extract_transactions
 router = APIRouter(prefix="/statements", tags=["Statements"])
 
 
-@router.post("/upload", response_model=StatementResponse, status_code=202)
+@router.post("/upload", response_model=StatementResponse, status_code=200)
 async def upload_statement(
     file: UploadFile,
     user: User = Depends(get_current_user),
