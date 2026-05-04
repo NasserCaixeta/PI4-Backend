@@ -1,5 +1,6 @@
-import base64
 import uuid
+from datetime import date as date_type, datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -10,9 +11,9 @@ from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.auth import FreeUsage, User
-from app.models.statements import BankStatement
+from app.models.statements import BankStatement, Category, Transaction
 from app.schemas.statements import StatementDetailResponse, StatementResponse
-from app.workers.tasks import process_statement
+from app.services.gemini import extract_transactions
 
 router = APIRouter(prefix="/statements", tags=["Statements"])
 
@@ -64,9 +65,38 @@ async def upload_statement(
     await db.commit()
     await db.refresh(statement)
 
-    # Enfileira task
-    pdf_b64 = base64.b64encode(pdf_bytes).decode()
-    process_statement.delay(str(statement.id), pdf_b64)
+    # Processa síncrono
+    try:
+        transactions_data = extract_transactions(pdf_bytes)
+
+        # Busca categorias default para mapear por nome
+        cat_result = await db.execute(
+            select(Category).where(Category.is_default == True)
+        )
+        categories = {c.name: c.id for c in cat_result.scalars()}
+
+        for tx in transactions_data:
+            category_id = categories.get(tx.get("category"))
+            tx_date = tx["date"]
+            if isinstance(tx_date, str):
+                tx_date = date_type.fromisoformat(tx_date)
+            transaction = Transaction(
+                statement_id=statement.id,
+                date=tx_date,
+                description=tx["description"],
+                amount=Decimal(str(tx["amount"])),
+                type=tx["type"],
+                category_id=category_id,
+            )
+            db.add(transaction)
+
+        statement.status = "completed"
+        statement.processed_at = datetime.utcnow()
+    except Exception:
+        statement.status = "error"
+
+    await db.commit()
+    await db.refresh(statement)
 
     return statement
 
