@@ -50,8 +50,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-# Debug temporário - remover depois
-import sys
-print(f"[DEBUG] DATABASE_URL raw: {settings.DATABASE_URL[:50]}...", file=sys.stderr)
-print(f"[DEBUG] async_database_url: {settings.async_database_url[:50]}...", file=sys.stderr)

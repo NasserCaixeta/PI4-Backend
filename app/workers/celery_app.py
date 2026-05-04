@@ -6,6 +6,7 @@ celery_app = Celery(
     "camelbox",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
+    include=["app.workers.tasks"],
 )
 
 celery_app.conf.update(
