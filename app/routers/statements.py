@@ -90,9 +90,14 @@ async def get_statement(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy.orm import selectinload as _sel
+    from app.models.statements import Transaction
+
     result = await db.execute(
         select(BankStatement)
-        .options(selectinload(BankStatement.transactions))
+        .options(
+            _sel(BankStatement.transactions).selectinload(Transaction.category)
+        )
         .where(BankStatement.id == statement_id, BankStatement.user_id == user.id)
     )
     statement = result.scalar_one_or_none()

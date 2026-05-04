@@ -25,12 +25,21 @@ def extract_transactions(pdf_bytes: bytes) -> list[dict]:
     model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
     prompt = """
-    Analise este extrato bancário PDF e extraia todas as transações.
+    Analise este extrato/fatura bancário PDF e extraia APENAS as transações de compras reais.
+
+    REGRAS IMPORTANTES:
+    - IGNORE completamente a seção "Pagamentos e Financiamentos" (pagamentos recebidos, parcelamentos de fatura, empréstimos, IOF, juros)
+    - IGNORE linhas de resumo (fatura anterior, pagamento recebido, total de compras, etc.)
+    - Estornos/devoluções devem ter type "credit" (são devoluções de dinheiro)
+    - Todas as compras normais devem ter type "debit"
+    - amount deve ser sempre o valor absoluto (positivo)
+    - Extraia TODAS as transações de compras, sem pular nenhuma
+
     Para cada transação, retorne:
     - date: data no formato YYYY-MM-DD
     - description: descrição da transação
     - amount: valor absoluto (sempre positivo)
-    - type: "credit" para entradas, "debit" para saídas
+    - type: "credit" para estornos/devoluções, "debit" para compras
     - category: uma das categorias: Alimentação, Moradia, Transporte, Lazer, Saúde, Outros
 
     Retorne APENAS um JSON array, sem markdown ou explicações.
@@ -41,4 +50,13 @@ def extract_transactions(pdf_bytes: bytes) -> list[dict]:
         {"mime_type": "application/pdf", "data": pdf_bytes}
     ])
 
-    return json.loads(response.text)
+    print(f"[DEBUG] Gemini response.text: {repr(response.text[:500]) if response.text else 'NONE/EMPTY'}")
+    print(f"[DEBUG] Gemini finish_reason: {response.candidates[0].finish_reason if response.candidates else 'NO CANDIDATES'}")
+    text = response.text.strip()
+    # Remove markdown code block se Gemini envolver em ```json...```
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]  # remove primeira linha (```json)
+        text = text.rsplit("```", 1)[0]  # remove ``` final
+        text = text.strip()
+
+    return json.loads(text)
