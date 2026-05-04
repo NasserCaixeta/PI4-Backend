@@ -92,7 +92,10 @@ async def upload_statement(
 
         statement.status = "completed"
         statement.processed_at = datetime.utcnow()
-    except Exception:
+    except Exception as e:
+        import traceback
+        print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
         statement.status = "error"
 
     await db.commit()
