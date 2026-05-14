@@ -21,12 +21,14 @@ class BankStatement(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     filename: Mapped[str | None] = mapped_column(String(255))
     file_size_kb: Mapped[int | None]
+    file_hash: Mapped[str | None] = mapped_column(String(64))
+    statement_type: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="reading")
     uploaded_at: Mapped[datetime] = mapped_column(default=func.now())
     processed_at: Mapped[datetime | None]
 
     user: Mapped[User] = relationship(back_populates="statements")
-    transactions: Mapped[list[Transaction]] = relationship(back_populates="statement")
+    transactions: Mapped[list[Transaction]] = relationship(back_populates="statement", cascade="all, delete-orphan")
 
 
 class Category(Base):

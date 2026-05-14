@@ -30,6 +30,7 @@ class StatementResponse(BaseModel):
     id: uuid.UUID
     filename: str | None
     file_size_kb: int | None
+    statement_type: str | None
     status: str
     uploaded_at: datetime
     processed_at: datetime | None
@@ -39,3 +40,8 @@ class StatementResponse(BaseModel):
 
 class StatementDetailResponse(StatementResponse):
     transactions: list[TransactionResponse] = []
+
+
+class DeleteMonthResponse(BaseModel):
+    deleted_transactions: int
+    deleted_empty_statements: int

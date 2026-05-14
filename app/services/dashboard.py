@@ -43,12 +43,26 @@ def get_previous_period(start: date, end: date) -> tuple[date, date]:
 
 async def get_period_totals(
     db: AsyncSession, user_id: uuid.UUID, start: date, end: date
-) -> tuple[Decimal, Decimal, int]:
-    """Returns (total_income, total_expenses, count) for period."""
+) -> tuple[Decimal, Decimal, Decimal, int]:
+    """Returns (total_income, total_expenses, bank_balance, count) for period."""
     result = await db.execute(
         select(
             func.coalesce(func.sum(Transaction.amount).filter(Transaction.type == "credit"), 0),
             func.coalesce(func.sum(Transaction.amount).filter(Transaction.type == "debit"), 0),
+            func.coalesce(
+                func.sum(Transaction.amount).filter(
+                    Transaction.type == "credit",
+                    BankStatement.statement_type == "bank_account",
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(Transaction.amount).filter(
+                    Transaction.type == "debit",
+                    BankStatement.statement_type == "bank_account",
+                ),
+                0,
+            ),
             func.count(Transaction.id),
         )
         .join(BankStatement)
@@ -59,7 +73,11 @@ async def get_period_totals(
         )
     )
     row = result.one()
-    return Decimal(str(row[0])), Decimal(str(row[1])), row[2]
+    income = Decimal(str(row[0]))
+    expenses = Decimal(str(row[1]))
+    bank_income = Decimal(str(row[2]))
+    bank_expenses = Decimal(str(row[3]))
+    return income, expenses, bank_income - bank_expenses, row[4]
 
 
 def calc_change_percent(current: Decimal, previous: Decimal) -> float | None:
@@ -78,11 +96,11 @@ async def get_summary(
     end_date: date | None,
 ) -> SummaryResponse:
     start, end = get_period_dates(month, year, start_date, end_date)
-    income, expenses, count = await get_period_totals(db, user_id, start, end)
+    income, expenses, balance, count = await get_period_totals(db, user_id, start, end)
 
     # Previous period comparison
     prev_start, prev_end = get_previous_period(start, end)
-    prev_income, prev_expenses, _ = await get_period_totals(db, user_id, prev_start, prev_end)
+    prev_income, prev_expenses, _, _ = await get_period_totals(db, user_id, prev_start, prev_end)
 
     comparison = ComparisonSchema(
         income_change_percent=calc_change_percent(income, prev_income),
@@ -94,7 +112,7 @@ async def get_summary(
         period=PeriodSchema(start=start, end=end),
         total_income=income,
         total_expenses=expenses,
-        balance=income - expenses,
+        balance=balance,
         transaction_count=count,
         comparison=comparison,
     )
