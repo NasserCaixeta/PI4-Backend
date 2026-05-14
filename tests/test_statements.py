@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 @pytest.mark.anyio
@@ -21,29 +21,43 @@ async def test_upload_requires_pdf(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_upload_success(client, auth_headers):
-    with patch("app.routers.statements.process_statement") as mock_task:
-        mock_task.delay = MagicMock()
-
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {
+            "statement_type": "credit_card",
+            "transactions": [
+                {
+                    "date": "2026-04-10",
+                    "description": "Fisia Nike Ecommer - Parcela 1/4",
+                    "amount": 100,
+                    "type": "debit",
+                    "category": "Outros",
+                }
+            ],
+        }
         response = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
             headers=auth_headers,
         )
 
-        assert response.status_code == 202
+        assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "processing"
+        assert data["status"] == "completed"
         assert data["filename"] == "extrato.pdf"
-        mock_task.delay.assert_called_once()
+        assert data["statement_type"] == "credit_card"
+        mock_extract.assert_called_once()
+
+        detail_response = await client.get(f"/statements/{data['id']}", headers=auth_headers)
+        assert detail_response.status_code == 200
+        assert detail_response.json()["transactions"][0]["category"]["name"] == "Compras"
 
 
 @pytest.mark.anyio
 async def test_upload_increments_free_usage(client, db):
     import uuid as uuid_module
 
-    with patch("app.routers.statements.process_statement") as mock_task:
-        mock_task.delay = MagicMock()
-
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
         # Registra usuário único para este teste
         unique_email = f"free_usage_{uuid_module.uuid4().hex[:8]}@example.com"
         reg_response = await client.post("/auth/register", json={
@@ -88,13 +102,15 @@ async def test_upload_paywall_limit(client, db):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Cria FreeUsage com limite esgotado
+    from app.core.config import settings
     from app.models.auth import FreeUsage
 
-    free_usage = FreeUsage(user_id=uuid_module.UUID(user_id), analyses_used=3)
+    free_usage = FreeUsage(user_id=uuid_module.UUID(user_id), analyses_used=settings.FREE_ANALYSES_LIMIT)
     db.add(free_usage)
     await db.commit()
 
-    with patch("app.routers.statements.process_statement"):
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
         response = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
@@ -112,9 +128,8 @@ async def test_list_statements_empty(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_list_statements_with_data(client, auth_headers):
-    with patch("app.routers.statements.process_statement") as mock_task:
-        mock_task.delay = MagicMock()
-
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
         # Upload um statement
         await client.post(
             "/statements/upload",
@@ -141,9 +156,8 @@ async def test_get_statement_not_found(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_get_statement_success(client, auth_headers):
-    with patch("app.routers.statements.process_statement") as mock_task:
-        mock_task.delay = MagicMock()
-
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
         # Upload
         upload_response = await client.post(
             "/statements/upload",
@@ -158,3 +172,72 @@ async def test_get_statement_success(client, auth_headers):
         data = response.json()
         assert data["id"] == statement_id
         assert data["filename"] == "extrato.pdf"
+
+
+@pytest.mark.anyio
+async def test_upload_duplicate_returns_conflict(client, auth_headers):
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+        await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-duplicate", "application/pdf")},
+            headers=auth_headers,
+        )
+
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("renomeado.pdf", b"%PDF-duplicate", "application/pdf")},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_delete_month_removes_only_selected_month(client, auth_headers):
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {
+            "statement_type": "bank_account",
+            "transactions": [
+                {
+                    "date": "2026-04-10",
+                    "description": "Abril",
+                    "amount": 100,
+                    "type": "debit",
+                    "category": "Outros",
+                },
+                {
+                    "date": "2026-05-10",
+                    "description": "Maio",
+                    "amount": 200,
+                    "type": "debit",
+                    "category": "Outros",
+                },
+            ],
+        }
+        await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-months", "application/pdf")},
+            headers=auth_headers,
+        )
+
+    response = await client.delete(
+        "/statements/month",
+        params={"month": 4, "year": 2026},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted_transactions"] == 1
+
+    april = await client.get(
+        "/transactions",
+        params={"month": 4, "year": 2026},
+        headers=auth_headers,
+    )
+    may = await client.get(
+        "/transactions",
+        params={"month": 5, "year": 2026},
+        headers=auth_headers,
+    )
+    assert april.json()["total"] == 0
+    assert may.json()["total"] == 1

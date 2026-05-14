@@ -25,6 +25,11 @@ DEFAULT_CATEGORIES = [
     {"name": "Transporte", "color": "#45B7D1", "icon": "car"},
     {"name": "Lazer", "color": "#96CEB4", "icon": "gamepad"},
     {"name": "Saúde", "color": "#DDA0DD", "icon": "heart-pulse"},
+    {"name": "Compras", "color": "#F59E0B", "icon": "shopping-bag"},
+    {"name": "Assinaturas", "color": "#8B5CF6", "icon": "repeat"},
+    {"name": "Educação", "color": "#3B82F6", "icon": "graduation-cap"},
+    {"name": "Serviços", "color": "#10B981", "icon": "wrench"},
+    {"name": "Transferências", "color": "#64748B", "icon": "arrow-left-right"},
     {"name": "Outros", "color": "#95A5A6", "icon": "ellipsis"},
 ]
 

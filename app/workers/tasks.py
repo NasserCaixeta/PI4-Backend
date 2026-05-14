@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.models.statements import BankStatement, Category, Transaction
+from app.services.categories import normalize_transaction_category
 from app.services.gemini import extract_transactions
 from app.workers.celery_app import celery_app
 
@@ -46,7 +47,9 @@ def process_statement(statement_id: str, pdf_bytes_b64: str):
 
             try:
                 # Extrai transações via Gemini
-                transactions_data = extract_transactions(pdf_bytes)
+                extraction = extract_transactions(pdf_bytes)
+                statement.statement_type = extraction["statement_type"]
+                transactions_data = extraction["transactions"]
 
                 # Busca categorias default para mapear por nome
                 cat_result = await db.execute(
@@ -56,7 +59,8 @@ def process_statement(statement_id: str, pdf_bytes_b64: str):
 
                 # Cria transações
                 for tx in transactions_data:
-                    category_id = categories.get(tx["category"])
+                    category_name = normalize_transaction_category(tx["description"], tx.get("category"))
+                    category_id = categories.get(category_name) or categories.get("Outros")
                     tx_date = tx["date"]
                     if isinstance(tx_date, str):
                         tx_date = date.fromisoformat(tx_date)
