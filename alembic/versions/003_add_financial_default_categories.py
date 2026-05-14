@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "003"
 down_revision: Union[str, None] = "002"
@@ -21,7 +22,7 @@ categories_table = sa.table(
     sa.column("color", sa.String),
     sa.column("icon", sa.String),
     sa.column("is_default", sa.Boolean),
-    sa.column("user_id", sa.String),
+    sa.column("user_id", postgresql.UUID(as_uuid=True)),
 )
 
 NEW_DEFAULT_CATEGORIES = [
