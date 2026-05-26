@@ -9,12 +9,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.database import get_db
-from app.models.auth import FreeUsage, User
+from app.models.auth import User
 from app.models.statements import BankStatement, Category, Transaction
 from app.schemas.statements import DeleteMonthResponse, StatementDetailResponse, StatementResponse
+from app.services.billing import consume_analysis_or_raise
 from app.services.categories import normalize_transaction_category
 from app.services.gemini import extract_transactions
 
@@ -48,27 +48,7 @@ async def upload_statement(
             detail="Este extrato já foi enviado anteriormente",
         )
 
-    # Verifica paywall (se não tem assinatura ativa)
-    has_subscription = user.subscription and user.subscription.status == "active"
-
-    if not has_subscription:
-        # Busca ou cria FreeUsage
-        result = await db.execute(
-            select(FreeUsage).where(FreeUsage.user_id == user.id)
-        )
-        free_usage = result.scalar_one_or_none()
-
-        if not free_usage:
-            free_usage = FreeUsage(user_id=user.id, analyses_used=0)
-            db.add(free_usage)
-
-        if free_usage.analyses_used >= settings.FREE_ANALYSES_LIMIT:
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Limite de análises gratuitas atingido",
-            )
-
-        free_usage.analyses_used += 1
+    await consume_analysis_or_raise(db, user)
 
     # Cria statement
     statement = BankStatement(
