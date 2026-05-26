@@ -120,6 +120,63 @@ async def test_upload_paywall_limit(client, db):
 
 
 @pytest.mark.anyio
+async def test_upload_super_plan_limit(client, db, monkeypatch):
+    import uuid as uuid_module
+
+    monkeypatch.setattr("app.services.billing.settings.SUPER_ANALYSES_LIMIT", 1)
+    unique_email = f"super_{uuid_module.uuid4().hex[:8]}@example.com"
+    reg_response = await client.post("/auth/register", json={
+        "email": unique_email,
+        "password": "12345678",
+    })
+    token = reg_response.json()["access_token"]
+    user_id = reg_response.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    from app.models.payments import Subscription
+
+    db.add(Subscription(user_id=uuid_module.UUID(user_id), status="active", plan="super", analyses_used=1))
+    await db.commit()
+
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-super", "application/pdf")},
+            headers=headers,
+        )
+        assert response.status_code == 402
+
+
+@pytest.mark.anyio
+async def test_upload_master_plan_unlimited(client, db):
+    import uuid as uuid_module
+
+    unique_email = f"master_{uuid_module.uuid4().hex[:8]}@example.com"
+    reg_response = await client.post("/auth/register", json={
+        "email": unique_email,
+        "password": "12345678",
+    })
+    token = reg_response.json()["access_token"]
+    user_id = reg_response.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    from app.models.payments import Subscription
+
+    db.add(Subscription(user_id=uuid_module.UUID(user_id), status="active", plan="master", analyses_used=999))
+    await db.commit()
+
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-master", "application/pdf")},
+            headers=headers,
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.anyio
 async def test_list_statements_empty(client, auth_headers):
     response = await client.get("/statements", headers=auth_headers)
     assert response.status_code == 200

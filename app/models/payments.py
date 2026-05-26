@@ -21,6 +21,9 @@ class Subscription(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20))
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+    analyses_used: Mapped[int] = mapped_column(default=0)
+    current_period_start: Mapped[datetime | None]
     current_period_end: Mapped[datetime | None]
 
     user: Mapped[User] = relationship(back_populates="subscription")
