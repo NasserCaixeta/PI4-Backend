@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     STRIPE_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
+    STRIPE_SUPER_PRICE_ID: str | None = None
+    STRIPE_MASTER_PRICE_ID: str | None = None
+    FRONTEND_URL: str = "http://localhost:5173"
     RESEND_API_KEY: str | None = None
 
     # Redis/Celery
@@ -34,6 +37,7 @@ class Settings(BaseSettings):
 
     # Paywall
     FREE_ANALYSES_LIMIT: int = 3
+    SUPER_ANALYSES_LIMIT: int = 20
 
     model_config = SettingsConfigDict(env_file=".env")
 

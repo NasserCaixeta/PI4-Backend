@@ -14,6 +14,10 @@ services:
         value: gemini-1.5-flash
       - key: FREE_ANALYSES_LIMIT
         value: "3"
+      - key: SUPER_ANALYSES_LIMIT
+        value: "20"
+      - key: FRONTEND_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -23,6 +27,10 @@ services:
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_SUPER_PRICE_ID
+        sync: false
+      - key: STRIPE_MASTER_PRICE_ID
         sync: false
       - key: RESEND_API_KEY
         sync: false
