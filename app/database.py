@@ -12,7 +12,10 @@ class Base(DeclarativeBase):
 
 
 _connect_args: dict = {}
-if "asyncpg" in settings.async_database_url and "localhost" not in settings.async_database_url:
+_url = settings.async_database_url
+_is_remote_pg = "asyncpg" in _url and "localhost" not in _url and "127.0.0.1" not in _url
+_is_internal_render = ".render.com" in _url or "sslmode=disable" in _url
+if _is_remote_pg and not _is_internal_render:
     _ssl_ctx = _ssl.create_default_context()
     _ssl_ctx.check_hostname = False
     _ssl_ctx.verify_mode = _ssl.CERT_NONE
