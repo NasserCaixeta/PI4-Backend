@@ -1,4 +1,5 @@
 import ssl as _ssl
+import urllib.parse as _urlparse
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,10 +14,20 @@ class Base(DeclarativeBase):
 
 _connect_args: dict = {}
 _url = settings.async_database_url
-_is_remote_pg = "asyncpg" in _url and "localhost" not in _url and "127.0.0.1" not in _url
-_is_internal_render = ".render.com" in _url or "sslmode=disable" in _url
-if _is_remote_pg and not _is_internal_render:
+
+# Only enable SSL for asyncpg if explicitly requested via URL params
+_requires_ssl = False
+if "asyncpg" in _url:
+    _parsed = _urlparse.urlparse(_url)
+    _q = _urlparse.parse_qs(_parsed.query)
+    _sslmode = (_q.get("sslmode") or [""])[0].lower()
+    _sslflag = (_q.get("ssl") or [""])[0].lower()
+    if _sslmode in {"require", "verify-full", "verify-ca"} or _sslflag in {"1", "true", "yes"}:
+        _requires_ssl = True
+
+if _requires_ssl:
     _ssl_ctx = _ssl.create_default_context()
+    # Allow connection even if the provider doesn't offer a verifiable cert chain
     _ssl_ctx.check_hostname = False
     _ssl_ctx.verify_mode = _ssl.CERT_NONE
     _connect_args = {"ssl": _ssl_ctx}
