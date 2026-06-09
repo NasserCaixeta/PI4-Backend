@@ -2,10 +2,20 @@ from celery import Celery
 
 from app.core.config import settings
 
+
+def _redis_url(url: str) -> str:
+    if url.startswith("rediss://") and "ssl_cert_reqs" not in url:
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}ssl_cert_reqs=CERT_NONE"
+    return url
+
+
+_url = _redis_url(settings.REDIS_URL)
+
 celery_app = Celery(
     "camelbox",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=_url,
+    backend=_url,
     include=["app.workers.tasks"],
 )
 
