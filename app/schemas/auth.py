@@ -35,3 +35,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    current_password: str | None = None
+    new_password: str | None = Field(None, min_length=8)

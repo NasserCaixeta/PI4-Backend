@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.feedback import SpendingFeedback
     from app.models.payments import Subscription
     from app.models.statements import BankStatement, Category
 
@@ -29,6 +30,7 @@ class User(Base):
     categories: Mapped[list[Category]] = relationship(back_populates="user")
     subscription: Mapped[Subscription | None] = relationship(back_populates="user")
     free_usage: Mapped[FreeUsage | None] = relationship(back_populates="user")
+    feedbacks: Mapped[list[SpendingFeedback]] = relationship(back_populates="user")
 
 
 class FreeUsage(Base):

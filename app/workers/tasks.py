@@ -8,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.models.feedback import SpendingFeedback
 from app.models.statements import BankStatement, Category, Transaction
 from app.services.categories import normalize_transaction_category
-from app.services.gemini import extract_transactions
+from app.services.gemini import analyze_spending, extract_transactions
 from app.workers.celery_app import celery_app
 
 
@@ -82,6 +83,89 @@ def process_statement(statement_id: str, pdf_bytes_b64: str):
                 import traceback
                 traceback.print_exc()
                 statement.status = "error"
+
+            await db.commit()
+
+        await engine.dispose()
+
+    asyncio.run(_process())
+
+
+@celery_app.task
+def generate_spending_feedback(feedback_id: str):
+    """
+    Gera feedback de gastos via Gemini para um período (mês/ano).
+
+    Atualiza status:
+    - "processing" → "completed" (sucesso)
+    - "processing" → "error" (falha)
+    """
+
+    async def _process():
+        engine = create_async_engine(settings.async_database_url, echo=False)
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with session_factory() as db:
+            feedback_uuid = uuid_mod.UUID(feedback_id)
+            result = await db.execute(
+                select(SpendingFeedback).where(SpendingFeedback.id == feedback_uuid)
+            )
+            feedback = result.scalar_one_or_none()
+            if not feedback:
+                return
+
+            feedback.status = "processing"
+            await db.commit()
+
+            try:
+                import calendar as cal
+                from datetime import date as date_type
+
+                last_day = cal.monthrange(feedback.year, feedback.month)[1]
+                start = date_type(feedback.year, feedback.month, 1)
+                end = date_type(feedback.year, feedback.month, last_day)
+
+                tx_result = await db.execute(
+                    select(
+                        Transaction.date,
+                        Transaction.description,
+                        Transaction.amount,
+                        Transaction.type,
+                        Category.name.label("category"),
+                    )
+                    .join(BankStatement, Transaction.statement_id == BankStatement.id)
+                    .outerjoin(Category, Transaction.category_id == Category.id)
+                    .where(
+                        BankStatement.user_id == feedback.user_id,
+                        Transaction.date >= start,
+                        Transaction.date <= end,
+                        Transaction.type == "debit",
+                    )
+                )
+                transactions = [
+                    {
+                        "date": str(row.date),
+                        "description": row.description,
+                        "amount": float(row.amount),
+                        "type": row.type,
+                        "category": row.category or "Outros",
+                    }
+                    for row in tx_result
+                ]
+
+                analysis = analyze_spending(transactions)
+
+                feedback.subscriptions = analysis["subscriptions"]
+                feedback.reducible_expenses = analysis["reducible_expenses"]
+                feedback.summary = analysis["summary"]
+                feedback.status = "completed"
+                feedback.completed_at = datetime.utcnow()
+
+            except Exception as e:
+                print(f"[FEEDBACK ERROR] {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+                feedback.status = "error"
 
             await db.commit()
 

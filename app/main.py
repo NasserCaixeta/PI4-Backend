@@ -8,6 +8,7 @@ from app.database import engine, seed_default_categories
 from app.routers.auth import router as auth_router
 from app.routers.categories import router as categories_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.feedback import router as feedback_router
 from app.routers.health import router as health_router
 from app.routers.payments import router as payments_router
 from app.routers.statements import router as statements_router
@@ -40,6 +41,7 @@ app.include_router(health_router, tags=["Health"])
 app.include_router(auth_router)
 app.include_router(categories_router)
 app.include_router(dashboard_router)
+app.include_router(feedback_router)
 app.include_router(payments_router)
 app.include_router(statements_router)
 app.include_router(transactions_router)

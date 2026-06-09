@@ -6,7 +6,7 @@ from app.core.dependencies import get_current_user
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.models.auth import User
-from app.schemas.auth import LoginRequest, TokenResponse, UserCreate, UserResponse
+from app.schemas.auth import LoginRequest, TokenResponse, UpdateProfileRequest, UserCreate, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -61,4 +61,37 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    data: UpdateProfileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.name is not None:
+        user.name = data.name
+
+    if data.new_password is not None:
+        if user.auth_provider != "email":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Troca de senha não disponível para login social",
+            )
+        if not data.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Informe a senha atual",
+            )
+        if not verify_password(data.current_password, user.password_hash or ""):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Senha atual incorreta",
+            )
+        user.password_hash = hash_password(data.new_password)
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
     return user

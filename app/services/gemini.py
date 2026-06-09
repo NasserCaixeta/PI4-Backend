@@ -82,3 +82,63 @@ def extract_transactions(pdf_bytes: bytes) -> dict:
     statement_type = normalize_statement_type(data.get("statement_type"))
     transactions = data.get("transactions") or []
     return {"statement_type": statement_type, "transactions": transactions}
+
+
+def analyze_spending(transactions: list[dict]) -> dict:
+    """
+    Analisa uma lista de transações e retorna feedback estruturado de gastos.
+
+    Retorna um dict com subscriptions, reducible_expenses e summary.
+    """
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+
+    transactions_text = json.dumps(transactions, ensure_ascii=False, default=str)
+
+    prompt = f"""
+    Você é um consultor financeiro pessoal. Analise as seguintes transações do mês e gere um relatório de feedback financeiro estruturado.
+
+    TRANSAÇÕES:
+    {transactions_text}
+
+    INSTRUÇÕES:
+    1. Identifique todas as assinaturas e cobranças recorrentes (Spotify, Netflix, Amazon Prime, Google One, iCloud, YouTube Premium, antivírus, apps, SaaS, etc.)
+    2. Identifique gastos que poderiam ser reduzidos ou eliminados, com sugestões práticas
+    3. Escreva um resumo geral construtivo e motivador com os principais insights
+
+    Retorne APENAS um JSON object, sem markdown ou explicações, neste formato exato:
+    {{
+      "subscriptions": [
+        {{
+          "name": "nome do serviço",
+          "description": "descrição da transação original",
+          "amount": 29.90
+        }}
+      ],
+      "reducible_expenses": [
+        {{
+          "category": "categoria",
+          "description": "descrição do gasto",
+          "amount": 150.00,
+          "suggestion": "sugestão prática de como reduzir",
+          "potential_saving": 50.00
+        }}
+      ],
+      "summary": "texto de 3 a 5 frases com análise geral, pontos positivos e principais recomendações"
+    }}
+    """
+
+    response = model.generate_content(prompt)
+
+    text = response.text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]
+        text = text.rsplit("```", 1)[0]
+        text = text.strip()
+
+    data = json.loads(text)
+    return {
+        "subscriptions": data.get("subscriptions") or [],
+        "reducible_expenses": data.get("reducible_expenses") or [],
+        "summary": data.get("summary") or "",
+    }
