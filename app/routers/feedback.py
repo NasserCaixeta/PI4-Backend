@@ -1,4 +1,6 @@
+import calendar as cal
 import uuid
+from datetime import date as date_type, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -8,6 +10,7 @@ from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.auth import User
 from app.models.feedback import SpendingFeedback
+from app.models.statements import BankStatement, Category, Transaction
 from app.schemas.feedback import (
     FeedbackDetailResponse,
     FeedbackGenerateRequest,
@@ -15,7 +18,7 @@ from app.schemas.feedback import (
     FeedbackListItem,
 )
 from app.services.billing import consume_analysis_or_raise
-from app.workers.tasks import generate_spending_feedback
+from app.services.gemini import analyze_spending
 
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
 
@@ -31,7 +34,6 @@ async def generate_feedback(
     if not (2000 <= data.year <= 2100):
         raise HTTPException(status_code=422, detail="Ano inválido")
 
-    # Check if feedback already exists for this month/year
     existing = await db.execute(
         select(SpendingFeedback).where(
             SpendingFeedback.user_id == user.id,
@@ -51,13 +53,62 @@ async def generate_feedback(
         user_id=user.id,
         month=data.month,
         year=data.year,
-        status="pending",
+        status="processing",
     )
     db.add(feedback)
     await db.commit()
     await db.refresh(feedback)
 
-    generate_spending_feedback.delay(str(feedback.id))
+    # ── Processamento síncrono (igual ao statements.py) ──────────────────────
+    try:
+        last_day = cal.monthrange(data.year, data.month)[1]
+        start = date_type(data.year, data.month, 1)
+        end = date_type(data.year, data.month, last_day)
+
+        tx_result = await db.execute(
+            select(
+                Transaction.date,
+                Transaction.description,
+                Transaction.amount,
+                Transaction.type,
+                Category.name.label("category"),
+            )
+            .join(BankStatement, Transaction.statement_id == BankStatement.id)
+            .outerjoin(Category, Transaction.category_id == Category.id)
+            .where(
+                BankStatement.user_id == user.id,
+                Transaction.date >= start,
+                Transaction.date <= end,
+                Transaction.type == "debit",
+            )
+        )
+        transactions = [
+            {
+                "date": str(row.date),
+                "description": row.description,
+                "amount": float(row.amount),
+                "type": row.type,
+                "category": row.category or "Outros",
+            }
+            for row in tx_result
+        ]
+
+        analysis = analyze_spending(transactions)
+
+        feedback.subscriptions = analysis["subscriptions"]
+        feedback.reducible_expenses = analysis["reducible_expenses"]
+        feedback.summary = analysis["summary"]
+        feedback.status = "completed"
+        feedback.completed_at = datetime.utcnow()
+
+    except Exception as e:
+        import traceback
+        print(f"[FEEDBACK ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        feedback.status = "error"
+
+    await db.commit()
+    await db.refresh(feedback)
 
     return FeedbackGenerateResponse(feedback_id=feedback.id, status=feedback.status)
 
