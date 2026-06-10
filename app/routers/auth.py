@@ -16,7 +16,9 @@ limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 _COOKIE_MAX_AGE = settings.JWT_EXPIRATION_DAYS * 86400
-_IS_SECURE = settings.APP_ENV == "production"
+_IS_PROD = settings.APP_ENV == "production"
+# Cross-origin (frontend on pages.dev, backend on onrender.com) requires SameSite=None + Secure
+_SAMESITE = "none" if _IS_PROD else "lax"
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -25,8 +27,8 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         value=token,
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
-        secure=_IS_SECURE,
-        samesite="lax",
+        secure=_IS_PROD,
+        samesite=_SAMESITE,
         path="/",
     )
 
