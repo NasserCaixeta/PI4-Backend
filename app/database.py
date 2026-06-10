@@ -17,6 +17,7 @@ _url = settings.async_database_url
 
 # Only enable SSL for asyncpg if explicitly requested via URL params
 _requires_ssl = False
+_verify_certs = True
 if "asyncpg" in _url:
     _parsed = _urlparse.urlparse(_url)
     _q = _urlparse.parse_qs(_parsed.query)
@@ -24,12 +25,14 @@ if "asyncpg" in _url:
     _sslflag = (_q.get("ssl") or [""])[0].lower()
     if _sslmode in {"require", "verify-full", "verify-ca"} or _sslflag in {"1", "true", "yes"}:
         _requires_ssl = True
+    if _sslmode == "require":
+        _verify_certs = False
 
 if _requires_ssl:
     _ssl_ctx = _ssl.create_default_context()
-    # Allow connection even if the provider doesn't offer a verifiable cert chain
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = _ssl.CERT_NONE
+    if not _verify_certs:
+        _ssl_ctx.check_hostname = False
+        _ssl_ctx.verify_mode = _ssl.CERT_NONE
     _connect_args = {"ssl": _ssl_ctx}
 
 engine = create_async_engine(settings.async_database_url, echo=False, connect_args=_connect_args)

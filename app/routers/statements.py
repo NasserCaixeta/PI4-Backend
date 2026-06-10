@@ -4,7 +4,9 @@ import hashlib
 from datetime import date as date_type, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,21 +20,39 @@ from app.services.billing import consume_analysis_or_raise
 from app.services.categories import normalize_transaction_category
 from app.services.gemini import extract_transactions
 
+limiter = Limiter(key_func=get_remote_address)
+
+MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
 router = APIRouter(prefix="/statements", tags=["Statements"])
 
 
 @router.post("/upload", response_model=StatementResponse, status_code=200)
+@limiter.limit("10/minute")
 async def upload_statement(
+    request: Request,
     file: UploadFile,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Valida tipo de arquivo
-    if file.content_type != "application/pdf":
+    # Valida tipo de arquivo pelo header
+    if file.content_type not in ("application/pdf", "application/octet-stream"):
         raise HTTPException(status_code=400, detail="Apenas PDFs são aceitos")
+
+    # Valida tamanho antes de ler tudo na memória
+    if file.size is not None and file.size > MAX_PDF_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite: 10 MB")
 
     # Lê arquivo e calcula hash antes de cobrar/consumir análise
     pdf_bytes = await file.read()
+
+    # Valida tamanho real após leitura (caso file.size não estivesse disponível)
+    if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite: 10 MB")
+
+    # Valida magic bytes reais do PDF
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Arquivo inválido. Apenas PDFs reais são aceitos")
     file_hash = hashlib.sha256(pdf_bytes).hexdigest()
     file_size_kb = len(pdf_bytes) // 1024
 

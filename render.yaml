@@ -10,6 +10,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.11
+      - key: APP_ENV
+        value: production
       - key: GEMINI_MODEL
         value: gemini-1.5-flash
       - key: FREE_ANALYSES_LIMIT

@@ -35,12 +35,16 @@ def get_effective_plan(subscription: Subscription | None) -> str:
     return FREE_PLAN
 
 
-async def get_or_create_free_usage(db: AsyncSession, user: User) -> FreeUsage:
-    result = await db.execute(select(FreeUsage).where(FreeUsage.user_id == user.id))
+async def get_or_create_free_usage(db: AsyncSession, user: User, lock: bool = False) -> FreeUsage:
+    query = select(FreeUsage).where(FreeUsage.user_id == user.id)
+    if lock:
+        query = query.with_for_update()
+    result = await db.execute(query)
     free_usage = result.scalar_one_or_none()
     if free_usage is None:
         free_usage = FreeUsage(user_id=user.id, analyses_used=0)
         db.add(free_usage)
+        await db.flush()
     return free_usage
 
 
@@ -76,15 +80,20 @@ async def consume_analysis_or_raise(db: AsyncSession, user: User) -> None:
         return
 
     if plan == SUPER_PLAN:
-        if user.subscription.analyses_used >= settings.SUPER_ANALYSES_LIMIT:
+        # Lock the subscription row to prevent concurrent bypass
+        locked_result = await db.execute(
+            select(Subscription).where(Subscription.user_id == user.id).with_for_update()
+        )
+        subscription = locked_result.scalar_one_or_none()
+        if subscription is None or subscription.analyses_used >= settings.SUPER_ANALYSES_LIMIT:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Limite de análises do plano Super atingido",
             )
-        user.subscription.analyses_used += 1
+        subscription.analyses_used += 1
         return
 
-    free_usage = await get_or_create_free_usage(db, user)
+    free_usage = await get_or_create_free_usage(db, user, lock=True)
     if free_usage.analyses_used >= settings.FREE_ANALYSES_LIMIT:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,

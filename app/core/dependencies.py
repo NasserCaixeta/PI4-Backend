@@ -1,6 +1,7 @@
 import uuid
+from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,14 +11,34 @@ from app.core.security import decode_access_token
 from app.database import get_db
 from app.models.auth import User
 
-security = HTTPBearer()
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _extract_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> Optional[str]:
+    cookie_token = request.cookies.get("token")
+    if cookie_token:
+        return cookie_token
+    if credentials and credentials.credentials:
+        return credentials.credentials
+    return None
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    token = credentials.credentials
+    token = _extract_token(request, credentials)
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token não fornecido",
+        )
+
     payload = decode_access_token(token)
 
     if payload is None:
