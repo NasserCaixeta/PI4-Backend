@@ -6,9 +6,9 @@ async def test_summary_empty(client, auth_headers):
     response = await client.get("/dashboard/summary", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
-    assert data["total_income"] == "0.00"
-    assert data["total_expenses"] == "0.00"
-    assert data["balance"] == "0.00"
+    assert float(data["total_income"]) == 0.0
+    assert float(data["total_expenses"]) == 0.0
+    assert float(data["balance"]) == 0.0
     assert data["transaction_count"] == 0
 
 

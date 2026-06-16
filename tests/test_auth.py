@@ -81,3 +81,78 @@ async def test_me_authenticated(client):
 async def test_me_unauthenticated(client):
     response = await client.get("/auth/me")
     assert response.status_code == 401  # HTTPBearer retorna 401 sem header
+
+
+@pytest.mark.anyio
+async def test_logout_returns_no_content(client):
+    response = await client.post("/auth/logout")
+    assert response.status_code == 204
+
+
+@pytest.mark.anyio
+async def test_update_profile_name(client):
+    reg = await client.post("/auth/register", json={
+        "email": "update_name@example.com",
+        "password": "12345678",
+        "name": "Nome Original",
+    })
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await client.patch("/auth/me", json={"name": "Novo Nome"}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["name"] == "Novo Nome"
+
+
+@pytest.mark.anyio
+async def test_update_profile_password_success(client):
+    reg = await client.post("/auth/register", json={
+        "email": "update_pwd@example.com",
+        "password": "senhavelha1",
+    })
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await client.patch("/auth/me", json={
+        "current_password": "senhavelha1",
+        "new_password": "senhanova2",
+    }, headers=headers)
+    assert response.status_code == 200
+
+    login = await client.post("/auth/login", json={
+        "email": "update_pwd@example.com",
+        "password": "senhanova2",
+    })
+    assert login.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_update_profile_wrong_current_password(client):
+    reg = await client.post("/auth/register", json={
+        "email": "wrong_pwd@example.com",
+        "password": "senha12345",
+    })
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await client.patch("/auth/me", json={
+        "current_password": "senhaerrada",
+        "new_password": "senhanova9",
+    }, headers=headers)
+    assert response.status_code == 400
+    assert "incorreta" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_update_profile_missing_current_password(client):
+    reg = await client.post("/auth/register", json={
+        "email": "missing_pwd@example.com",
+        "password": "senha12345",
+    })
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await client.patch("/auth/me", json={
+        "new_password": "senhanova9",
+    }, headers=headers)
+    assert response.status_code == 400

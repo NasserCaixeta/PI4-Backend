@@ -20,6 +20,59 @@ async def test_upload_requires_pdf(client, auth_headers):
 
 
 @pytest.mark.anyio
+async def test_upload_invalid_magic_bytes(client, auth_headers):
+    """Arquivo com content-type PDF mas conteúdo não é PDF real (magic bytes inválidos)."""
+    response = await client.post(
+        "/statements/upload",
+        files={"file": ("fake.pdf", b"PK\x03\x04fake zip content", "application/pdf")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "inválido" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_upload_file_too_large(client, auth_headers):
+    """Arquivo PDF maior que 10 MB deve ser rejeitado."""
+    big_content = b"%PDF-" + b"x" * (10 * 1024 * 1024 + 1)
+    response = await client.post(
+        "/statements/upload",
+        files={"file": ("grande.pdf", big_content, "application/pdf")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "grande" in response.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_statement_isolation_between_users(client, db):
+    """Usuário B não pode acessar statement do usuário A."""
+    import uuid as uuid_module
+
+    email_a = f"iso_a_{uuid_module.uuid4().hex[:8]}@example.com"
+    email_b = f"iso_b_{uuid_module.uuid4().hex[:8]}@example.com"
+
+    reg_a = await client.post("/auth/register", json={"email": email_a, "password": "12345678"})
+    client.cookies.clear()  # prevent user_a cookie from being overwritten by user_b below
+    reg_b = await client.post("/auth/register", json={"email": email_b, "password": "12345678"})
+    client.cookies.clear()  # clear accumulated cookies; auth uses only Bearer headers below
+    headers_a = {"Authorization": f"Bearer {reg_a.json()['access_token']}"}
+    headers_b = {"Authorization": f"Bearer {reg_b.json()['access_token']}"}
+
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+        upload = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-isolation", "application/pdf")},
+            headers=headers_a,
+        )
+    statement_id = upload.json()["id"]
+
+    response = await client.get(f"/statements/{statement_id}", headers=headers_b)
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
 async def test_upload_success(client, auth_headers):
     with patch("app.routers.statements.extract_transactions") as mock_extract:
         mock_extract.return_value = {
