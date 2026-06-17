@@ -32,6 +32,7 @@ class StatementResponse(BaseModel):
     file_size_kb: int | None
     statement_type: str | None
     status: str
+    error_message: str | None = None
     uploaded_at: datetime
     processed_at: datetime | None
 

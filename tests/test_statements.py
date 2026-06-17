@@ -141,6 +141,38 @@ async def test_upload_increments_free_usage(client, db):
 
 
 @pytest.mark.anyio
+async def test_upload_does_not_consume_free_usage_when_processing_fails(client, db):
+    import uuid as uuid_module
+
+    unique_email = f"failed_usage_{uuid_module.uuid4().hex[:8]}@example.com"
+    reg_response = await client.post("/auth/register", json={
+        "email": unique_email,
+        "password": "12345678",
+    })
+    token = reg_response.json()["access_token"]
+    user_id = reg_response.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with patch("app.routers.statements.extract_transactions", side_effect=ValueError("Gemini inválido")):
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-processing-fails", "application/pdf")},
+            headers=headers,
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Não foi possível processar o PDF"
+
+    from sqlalchemy import select
+    from app.models.auth import FreeUsage
+
+    result = await db.execute(
+        select(FreeUsage).where(FreeUsage.user_id == uuid_module.UUID(user_id))
+    )
+    assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
 async def test_upload_paywall_limit(client, db):
     import uuid as uuid_module
 
@@ -301,6 +333,63 @@ async def test_upload_duplicate_returns_conflict(client, auth_headers):
         )
 
         assert response.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_upload_allows_retry_after_failed_same_pdf(client, auth_headers):
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.side_effect = [
+            ValueError("Gemini inválido"),
+            {"statement_type": "credit_card", "transactions": []},
+        ]
+
+        failed = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-retry-after-error", "application/pdf")},
+            headers=auth_headers,
+        )
+        retry = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-retry-after-error", "application/pdf")},
+            headers=auth_headers,
+        )
+
+    assert failed.status_code == 422
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "completed"
+
+
+@pytest.mark.anyio
+async def test_upload_rejects_invalid_transaction_without_saving_transactions(client, auth_headers):
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {
+            "statement_type": "credit_card",
+            "transactions": [
+                {
+                    "date": "2026-04-10",
+                    "description": "Compra inválida",
+                    "amount": 100,
+                    "type": "withdrawal",
+                    "category": "Compras",
+                }
+            ],
+        }
+
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-invalid-tx", "application/pdf")},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Não foi possível processar o PDF"
+
+    transactions = await client.get(
+        "/transactions",
+        params={"month": 4, "year": 2026},
+        headers=auth_headers,
+    )
+    assert transactions.json()["total"] == 0
 
 
 @pytest.mark.anyio

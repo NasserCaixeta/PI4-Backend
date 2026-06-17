@@ -24,6 +24,7 @@ class BankStatement(Base):
     file_hash: Mapped[str | None] = mapped_column(String(64))
     statement_type: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="reading")
+    error_message: Mapped[str | None] = mapped_column(Text)
     uploaded_at: Mapped[datetime] = mapped_column(default=func.now())
     processed_at: Mapped[datetime | None]
 

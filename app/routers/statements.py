@@ -1,24 +1,22 @@
 import uuid
 import calendar
 import hashlib
-from datetime import date as date_type, datetime
-from decimal import Decimal
+from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.auth import User
-from app.models.statements import BankStatement, Category, Transaction
+from app.models.statements import BankStatement, Transaction
 from app.schemas.statements import DeleteMonthResponse, StatementDetailResponse, StatementResponse
-from app.services.billing import consume_analysis_or_raise
-from app.services.categories import normalize_transaction_category
+from app.services.billing import consume_analysis_or_raise, ensure_analysis_available_or_raise
 from app.services.gemini import extract_transactions
+from app.services.statement_processing import StatementProcessingError, process_statement_pdf
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -56,67 +54,71 @@ async def upload_statement(
     file_hash = hashlib.sha256(pdf_bytes).hexdigest()
     file_size_kb = len(pdf_bytes) // 1024
 
-    duplicate_result = await db.execute(
+    existing_result = await db.execute(
         select(BankStatement).where(
             BankStatement.user_id == user.id,
             BankStatement.file_hash == file_hash,
         )
     )
-    if duplicate_result.scalar_one_or_none():
+    existing_statement = existing_result.scalar_one_or_none()
+    if existing_statement and existing_statement.status in {"processing", "completed"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Este extrato já foi enviado anteriormente",
         )
 
-    await consume_analysis_or_raise(db, user)
+    await ensure_analysis_available_or_raise(db, user)
 
-    # Cria statement
-    statement = BankStatement(
-        user_id=user.id,
-        filename=file.filename,
-        file_size_kb=file_size_kb,
-        file_hash=file_hash,
-        status="processing",
-    )
-    db.add(statement)
+    if existing_statement:
+        statement = existing_statement
+        statement.filename = file.filename
+        statement.file_size_kb = file_size_kb
+        statement.statement_type = None
+        statement.status = "processing"
+        statement.error_message = None
+        statement.processed_at = None
+    else:
+        statement = BankStatement(
+            user_id=user.id,
+            filename=file.filename,
+            file_size_kb=file_size_kb,
+            file_hash=file_hash,
+            status="processing",
+        )
+        db.add(statement)
     await db.commit()
     await db.refresh(statement)
 
-    # Processa síncrono
     try:
-        extraction = extract_transactions(pdf_bytes)
-        statement.statement_type = extraction["statement_type"]
-        transactions_data = extraction["transactions"]
-
-        # Busca categorias default para mapear por nome
-        cat_result = await db.execute(
-            select(Category).where(Category.is_default == True)
-        )
-        categories = {c.name: c.id for c in cat_result.scalars()}
-
-        for tx in transactions_data:
-            category_name = normalize_transaction_category(tx["description"], tx.get("category"))
-            category_id = categories.get(category_name) or categories.get("Outros")
-            tx_date = tx["date"]
-            if isinstance(tx_date, str):
-                tx_date = date_type.fromisoformat(tx_date)
-            transaction = Transaction(
-                statement_id=statement.id,
-                date=tx_date,
-                description=tx["description"],
-                amount=Decimal(str(tx["amount"])),
-                type=tx["type"],
-                category_id=category_id,
-            )
-            db.add(transaction)
-
-        statement.status = "completed"
-        statement.processed_at = datetime.utcnow()
+        await process_statement_pdf(db, statement, pdf_bytes, extract_transactions)
+        await consume_analysis_or_raise(db, user)
+    except StatementProcessingError as e:
+        import traceback
+        print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+        await db.rollback()
+        statement.status = "error"
+        statement.error_message = str(e)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Não foi possível processar o PDF",
+        ) from e
+    except HTTPException:
+        await db.rollback()
+        raise
     except Exception as e:
         import traceback
         print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
         traceback.print_exc()
+        await db.rollback()
         statement.status = "error"
+        statement.error_message = "Erro inesperado ao processar PDF"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Não foi possível processar o PDF",
+        ) from e
 
     await db.commit()
     await db.refresh(statement)

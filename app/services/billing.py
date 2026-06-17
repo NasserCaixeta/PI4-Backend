@@ -102,6 +102,32 @@ async def consume_analysis_or_raise(db: AsyncSession, user: User) -> None:
     free_usage.analyses_used += 1
 
 
+async def ensure_analysis_available_or_raise(db: AsyncSession, user: User) -> None:
+    plan = get_effective_plan(user.subscription)
+
+    if plan == MASTER_PLAN:
+        return
+
+    if plan == SUPER_PLAN:
+        result = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+        subscription = result.scalar_one_or_none()
+        if subscription is None or subscription.analyses_used >= settings.SUPER_ANALYSES_LIMIT:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Limite de análises do plano Super atingido",
+            )
+        return
+
+    result = await db.execute(select(FreeUsage).where(FreeUsage.user_id == user.id))
+    free_usage = result.scalar_one_or_none()
+    analyses_used = free_usage.analyses_used if free_usage else 0
+    if analyses_used >= settings.FREE_ANALYSES_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Limite de análises gratuitas atingido",
+        )
+
+
 def plan_from_price_id(price_id: str | None) -> str:
     if price_id and price_id == settings.STRIPE_SUPER_PRICE_ID:
         return SUPER_PLAN
