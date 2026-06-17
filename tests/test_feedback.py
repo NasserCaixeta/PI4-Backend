@@ -5,8 +5,24 @@ import pytest
 
 MOCK_ANALYSIS = {
     "summary": "Seus gastos estão controlados.",
+    "highlights": ["Economia potencial estimada de R$ 80,00."],
     "subscriptions": [{"name": "Spotify", "amount": 21.90, "description": "Música"}],
     "reducible_expenses": [{"category": "Alimentação", "description": "Delivery", "amount": 150.0, "suggestion": "Cozinhe mais", "potential_saving": 80.0}],
+    "saving_opportunities": [{
+        "title": "Delivery concentrado no mês",
+        "category": "Alimentação",
+        "type": "reduce",
+        "amount": 150.0,
+        "description": "Delivery",
+        "suggestion": "Cozinhe mais",
+        "potential_saving": 80.0,
+        "confidence": "medium",
+        "priority": 80,
+        "reason": "Foram 3 transações somando R$ 150,00.",
+        "evidence": ["IFOOD - R$ 50.00"],
+    }],
+    "watchlist": [],
+    "total_potential_saving": 80.0,
 }
 
 
@@ -36,7 +52,7 @@ async def test_generate_feedback_requires_auth(client):
 async def test_generate_feedback_success(client, auth_headers):
     await _upload_with_tx(client, auth_headers)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         response = await client.post(
             "/feedback/generate",
             json={"month": 4, "year": 2026},
@@ -53,7 +69,7 @@ async def test_generate_feedback_success(client, auth_headers):
 async def test_generate_feedback_duplicate_returns_conflict(client, auth_headers):
     await _upload_with_tx(client, auth_headers)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=auth_headers)
         response = await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=auth_headers)
 
@@ -89,7 +105,7 @@ async def test_list_feedbacks_empty(client, auth_headers):
 async def test_list_feedbacks_with_data(client, auth_headers):
     await _upload_with_tx(client, auth_headers)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=auth_headers)
 
     response = await client.get("/feedback", headers=auth_headers)
@@ -113,7 +129,7 @@ async def test_get_feedback_not_found(client, auth_headers):
 async def test_get_feedback_success(client, auth_headers):
     await _upload_with_tx(client, auth_headers)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         gen = await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=auth_headers)
 
     feedback_id = gen.json()["feedback_id"]
@@ -122,13 +138,16 @@ async def test_get_feedback_success(client, auth_headers):
     data = response.json()
     assert data["id"] == feedback_id
     assert data["summary"] == MOCK_ANALYSIS["summary"]
+    assert data["highlights"] == MOCK_ANALYSIS["highlights"]
+    assert data["total_potential_saving"] == 80.0
+    assert data["saving_opportunities"][0]["confidence"] == "medium"
 
 
 @pytest.mark.anyio
 async def test_delete_feedback_success(client, auth_headers):
     await _upload_with_tx(client, auth_headers)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         gen = await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=auth_headers)
 
     feedback_id = gen.json()["feedback_id"]
@@ -168,7 +187,7 @@ async def test_cannot_access_other_user_feedback(client, db):
         }
         await client.post("/statements/upload", files={"file": ("e.pdf", b"%PDF-a", "application/pdf")}, headers=headers_a)
 
-    with patch("app.routers.feedback.analyze_spending", return_value=MOCK_ANALYSIS):
+    with patch("app.routers.feedback.generate_spending_analysis", return_value=MOCK_ANALYSIS):
         gen = await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=headers_a)
 
     feedback_id = gen.json()["feedback_id"]

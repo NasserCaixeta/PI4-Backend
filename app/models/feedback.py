@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Integer, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON as GenericJSON
 
@@ -26,6 +27,10 @@ class SpendingFeedback(Base):
     status: Mapped[str] = mapped_column(default="pending")
     subscriptions: Mapped[dict | None] = mapped_column(GenericJSON, nullable=True)
     reducible_expenses: Mapped[dict | None] = mapped_column(GenericJSON, nullable=True)
+    highlights: Mapped[list | None] = mapped_column(GenericJSON, nullable=True)
+    saving_opportunities: Mapped[list | None] = mapped_column(GenericJSON, nullable=True)
+    watchlist: Mapped[list | None] = mapped_column(GenericJSON, nullable=True)
+    total_potential_saving: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(nullable=True)

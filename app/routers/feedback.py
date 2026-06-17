@@ -20,7 +20,7 @@ from app.schemas.feedback import (
     FeedbackListItem,
 )
 from app.services.billing import consume_analysis_or_raise
-from app.services.gemini import analyze_spending
+from app.services.spending_insights import generate_spending_analysis
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -99,10 +99,14 @@ async def generate_feedback(
             for row in tx_result
         ]
 
-        analysis = analyze_spending(transactions)
+        analysis = generate_spending_analysis(transactions)
 
         feedback.subscriptions = analysis["subscriptions"]
         feedback.reducible_expenses = analysis["reducible_expenses"]
+        feedback.highlights = analysis["highlights"]
+        feedback.saving_opportunities = analysis["saving_opportunities"]
+        feedback.watchlist = analysis["watchlist"]
+        feedback.total_potential_saving = analysis["total_potential_saving"]
         feedback.summary = analysis["summary"]
         feedback.status = "completed"
         feedback.completed_at = datetime.utcnow()

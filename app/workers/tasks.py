@@ -11,7 +11,8 @@ from app.core.config import settings
 from app.models.feedback import SpendingFeedback
 from app.models.statements import BankStatement, Category, Transaction
 from app.services.categories import normalize_transaction_category
-from app.services.gemini import analyze_spending, extract_transactions
+from app.services.gemini import extract_transactions
+from app.services.spending_insights import generate_spending_analysis
 from app.workers.celery_app import celery_app
 
 
@@ -153,10 +154,14 @@ def generate_spending_feedback(feedback_id: str):
                     for row in tx_result
                 ]
 
-                analysis = analyze_spending(transactions)
+                analysis = generate_spending_analysis(transactions)
 
                 feedback.subscriptions = analysis["subscriptions"]
                 feedback.reducible_expenses = analysis["reducible_expenses"]
+                feedback.highlights = analysis["highlights"]
+                feedback.saving_opportunities = analysis["saving_opportunities"]
+                feedback.watchlist = analysis["watchlist"]
+                feedback.total_potential_saving = analysis["total_potential_saving"]
                 feedback.summary = analysis["summary"]
                 feedback.status = "completed"
                 feedback.completed_at = datetime.utcnow()

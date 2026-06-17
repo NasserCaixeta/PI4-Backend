@@ -142,3 +142,49 @@ def analyze_spending(transactions: list[dict]) -> dict:
         "reducible_expenses": data.get("reducible_expenses") or [],
         "summary": data.get("summary") or "",
     }
+
+
+def analyze_spending_context(context: dict) -> dict:
+    """
+    Recebe contexto financeiro já calculado pelo backend e gera texto de apoio.
+
+    A IA não deve inventar valores; números e oportunidades finais continuam vindo
+    do motor determinístico em spending_insights.py.
+    """
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+
+    context_text = json.dumps(context, ensure_ascii=False, default=str)
+
+    prompt = f"""
+    Você é um consultor financeiro pessoal. Receberá um contexto já calculado por regras do sistema.
+
+    CONTEXTO CALCULADO:
+    {context_text}
+
+    REGRAS:
+    - Não invente valores, categorias, transações ou economia potencial.
+    - Não aumente potential_saving.
+    - Use linguagem cautelosa quando confidence for "low" ou "medium".
+    - Não recomende cortar saúde, educação ou transferências.
+    - Escreva de forma prática, sem tom alarmista.
+
+    Retorne APENAS um JSON object neste formato:
+    {{
+      "summary": "texto de 3 a 5 frases, baseado somente no contexto",
+      "highlights": ["até 3 frases curtas com os principais achados"]
+    }}
+    """
+
+    response = model.generate_content(prompt)
+    text = response.text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]
+        text = text.rsplit("```", 1)[0]
+        text = text.strip()
+
+    data = json.loads(text)
+    return {
+        "summary": data.get("summary") or "",
+        "highlights": data.get("highlights") or [],
+    }
