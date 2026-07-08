@@ -95,6 +95,33 @@ async def test_generate_feedback_paywall(client, db):
 
 
 @pytest.mark.anyio
+async def test_generate_feedback_does_not_consume_usage_when_analysis_fails(client, db):
+    unique_email = f"fb_fail_{uuid_module.uuid4().hex[:8]}@example.com"
+    reg = await client.post("/auth/register", json={"email": unique_email, "password": "12345678"})
+    token = reg.json()["access_token"]
+    user_id = reg.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await _upload_with_tx(client, headers)
+
+    with patch("app.routers.feedback.generate_spending_analysis", side_effect=ValueError("analysis failed")):
+        response = await client.post("/feedback/generate", json={"month": 4, "year": 2026}, headers=headers)
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "error"
+
+    from sqlalchemy import select
+    from app.models.auth import FreeUsage
+
+    result = await db.execute(
+        select(FreeUsage).where(FreeUsage.user_id == uuid_module.UUID(user_id))
+    )
+    free_usage = result.scalar_one_or_none()
+    assert free_usage is not None
+    assert free_usage.analyses_used == 1
+
+
+@pytest.mark.anyio
 async def test_list_feedbacks_empty(client, auth_headers):
     response = await client.get("/feedback", headers=auth_headers)
     assert response.status_code == 200

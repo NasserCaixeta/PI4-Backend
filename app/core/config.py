@@ -1,4 +1,3 @@
-import uuid
 import warnings
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -44,16 +43,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env")
 
-    _cached_jwt_secret: str | None = None
-
     @property
     def jwt_secret(self) -> str:
         if self.JWT_SECRET:
             return self.JWT_SECRET
-        if self._cached_jwt_secret is None:
-            warnings.warn("Using random JWT_SECRET - não use em produção")
-            self._cached_jwt_secret = str(uuid.uuid4())
-        return self._cached_jwt_secret
+        if self.APP_ENV == "production":
+            raise RuntimeError("JWT_SECRET must be configured in production")
+        warnings.warn("Using development JWT_SECRET fallback - não use em produção")
+        return "camelbox-development-jwt-secret"
 
 
 settings = Settings()

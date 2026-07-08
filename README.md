@@ -13,3 +13,9 @@ Backend API for Camelbox - Financial Analysis SaaS.
 
 - Run tests: `uv run pytest`
 - Create migration: `uv run alembic revision --autogenerate -m "description"`
+
+## Background Jobs
+
+Celery worker code exists under `app/workers`, but the current production flow does not enqueue those tasks. Upload processing and feedback generation run synchronously through the FastAPI routers.
+
+Celery integration is planned as a separate feature for VPS deployment, with API job enqueueing, worker process management, Redis/broker configuration, persisted status, and observability handled together.

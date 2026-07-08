@@ -84,6 +84,42 @@ async def test_update_transaction_success(client, auth_headers):
 
 
 @pytest.mark.anyio
+async def test_update_transaction_rejects_unknown_category(client, auth_headers):
+    from unittest.mock import patch
+
+    with patch("app.routers.statements.extract_transactions") as mock_extract:
+        mock_extract.return_value = {
+            "statement_type": "credit_card",
+            "transactions": [
+                {
+                    "date": "2026-04-01",
+                    "description": "Compra Original",
+                    "amount": 50,
+                    "type": "debit",
+                    "category": "Outros",
+                }
+            ],
+        }
+        await client.post(
+            "/statements/upload",
+            files={"file": ("extrato_invalid_category.pdf", b"%PDF-invalid-category", "application/pdf")},
+            headers=auth_headers,
+        )
+
+    txs = await client.get("/transactions", headers=auth_headers)
+    tx_id = txs.json()["items"][0]["id"]
+
+    response = await client.patch(
+        f"/transactions/{tx_id}",
+        json={"category_id": "00000000-0000-0000-0000-000000000000"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Categoria não encontrada"
+
+
+@pytest.mark.anyio
 async def test_delete_transaction_success(client, auth_headers):
     from unittest.mock import patch
 

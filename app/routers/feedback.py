@@ -19,7 +19,7 @@ from app.schemas.feedback import (
     FeedbackGenerateResponse,
     FeedbackListItem,
 )
-from app.services.billing import consume_analysis_or_raise
+from app.services.billing import consume_analysis_or_raise, ensure_analysis_available_or_raise
 from app.services.spending_insights import generate_spending_analysis
 
 limiter = Limiter(key_func=get_remote_address)
@@ -53,7 +53,7 @@ async def generate_feedback(
             detail="Já existe um feedback para este mês. Delete-o antes de gerar novamente.",
         )
 
-    await consume_analysis_or_raise(db, user)
+    await ensure_analysis_available_or_raise(db, user)
 
     feedback = SpendingFeedback(
         user_id=user.id,
@@ -110,6 +110,7 @@ async def generate_feedback(
         feedback.summary = analysis["summary"]
         feedback.status = "completed"
         feedback.completed_at = datetime.utcnow()
+        await consume_analysis_or_raise(db, user)
 
     except Exception as e:
         import traceback
