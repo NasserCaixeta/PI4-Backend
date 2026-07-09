@@ -1,4 +1,5 @@
 import uuid
+import base64
 import calendar
 import hashlib
 from datetime import date as date_type
@@ -14,9 +15,8 @@ from app.database import get_db
 from app.models.auth import User
 from app.models.statements import BankStatement, Transaction
 from app.schemas.statements import DeleteMonthResponse, StatementDetailResponse, StatementResponse
-from app.services.billing import consume_analysis_or_raise, ensure_analysis_available_or_raise
-from app.services.gemini import extract_transactions
-from app.services.statement_processing import StatementProcessingError, process_statement_pdf
+from app.services.billing import ensure_analysis_available_or_raise
+from app.workers.tasks import process_statement
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -89,39 +89,17 @@ async def upload_statement(
     await db.commit()
     await db.refresh(statement)
 
+    pdf_payload = base64.b64encode(pdf_bytes).decode("ascii")
     try:
-        await process_statement_pdf(db, statement, pdf_bytes, extract_transactions)
-        await consume_analysis_or_raise(db, user)
-    except StatementProcessingError as e:
-        import traceback
-        print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
-        traceback.print_exc()
-        await db.rollback()
+        process_statement.delay(str(statement.id), pdf_payload)
+    except Exception as exc:
         statement.status = "error"
-        statement.error_message = str(e)
+        statement.error_message = "Não foi possível enfileirar o processamento"
         await db.commit()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Não foi possível processar o PDF",
-        ) from e
-    except HTTPException:
-        await db.rollback()
-        raise
-    except Exception as e:
-        import traceback
-        print(f"[UPLOAD ERROR] {type(e).__name__}: {e}")
-        traceback.print_exc()
-        await db.rollback()
-        statement.status = "error"
-        statement.error_message = "Erro inesperado ao processar PDF"
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Não foi possível processar o PDF",
-        ) from e
-
-    await db.commit()
-    await db.refresh(statement)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível enfileirar o processamento do PDF",
+        ) from exc
 
     return statement
 

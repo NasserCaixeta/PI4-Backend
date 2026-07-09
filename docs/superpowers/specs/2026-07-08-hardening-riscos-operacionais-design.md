@@ -22,6 +22,7 @@ Não inclui:
 - Migrar upload de extratos para Celery.
 - Migrar geração de feedback para Celery.
 - Remover Celery do projeto.
+- Preparar deploy de worker Celery em VPS.
 - Alterar endpoints públicos ou payloads de resposta.
 - Mudar planos, limites, preços ou regras de Stripe.
 
@@ -99,6 +100,8 @@ Não integrar Celery neste pacote.
 
 A mudança conservadora é documentar no código ou na documentação do projeto que os workers existem como infraestrutura não ativa no deploy atual. A lógica de verdade continua nos serviços chamados pelos routers.
 
+Celery será tratado em uma feature própria posterior, com foco em execução correta em uma VPS Hostinger. Essa feature deve redesenhar o fluxo assíncrono de ponta a ponta: API enfileirando jobs, worker separado, Redis/broker, persistência de status, observabilidade e deploy.
+
 Se houver edição em áreas duplicadas futuramente, a preferência deve ser extrair lógica compartilhada para `app/services` e fazer routers/workers chamarem o mesmo serviço, em vez de duplicar regras.
 
 ### JWT
@@ -134,3 +137,4 @@ Os testes existentes dependem de PostgreSQL local em `localhost:5432`. A verific
 - Dev/test mantêm comportamento simples sem quebrar a experiência local.
 - Nenhum endpoint público muda de rota ou formato de resposta esperado.
 - Celery permanece fora do caminho crítico, com seu status documentado.
+- A futura integração Celery/VPS fica explicitamente fora deste pacote.

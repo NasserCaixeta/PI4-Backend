@@ -1,4 +1,28 @@
+import base64
+from unittest.mock import patch
+
 import pytest
+
+from app.workers.tasks import process_statement_pdf_payload
+
+
+async def _upload_and_process(client, db, headers, pdf_bytes, extraction):
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", pdf_bytes, "application/pdf")},
+            headers=headers,
+        )
+
+    statement_id = response.json()["id"]
+    pdf_payload = base64.b64encode(pdf_bytes).decode("ascii")
+
+    def extractor(_pdf_bytes):
+        return extraction
+
+    await process_statement_pdf_payload(db, statement_id, pdf_payload, extractor=extractor)
+    return response
 
 
 @pytest.mark.anyio
@@ -50,21 +74,19 @@ async def test_delete_transaction_not_found(client, auth_headers):
 
 
 @pytest.mark.anyio
-async def test_update_transaction_success(client, auth_headers):
-    from unittest.mock import patch
-
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
+async def test_update_transaction_success(client, auth_headers, db):
+    await _upload_and_process(
+        client,
+        db,
+        auth_headers,
+        b"%PDF-txupdate",
+        {
             "statement_type": "credit_card",
             "transactions": [
                 {"date": "2026-04-01", "description": "Compra Original", "amount": 50, "type": "debit", "category": "Outros"}
             ],
-        }
-        await client.post(
-            "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-txupdate", "application/pdf")},
-            headers=auth_headers,
-        )
+        },
+    )
 
     txs = await client.get("/transactions", headers=auth_headers)
     tx_id = txs.json()["items"][0]["id"]
@@ -84,11 +106,13 @@ async def test_update_transaction_success(client, auth_headers):
 
 
 @pytest.mark.anyio
-async def test_update_transaction_rejects_unknown_category(client, auth_headers):
-    from unittest.mock import patch
-
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
+async def test_update_transaction_rejects_unknown_category(client, auth_headers, db):
+    await _upload_and_process(
+        client,
+        db,
+        auth_headers,
+        b"%PDF-invalid-category",
+        {
             "statement_type": "credit_card",
             "transactions": [
                 {
@@ -99,12 +123,8 @@ async def test_update_transaction_rejects_unknown_category(client, auth_headers)
                     "category": "Outros",
                 }
             ],
-        }
-        await client.post(
-            "/statements/upload",
-            files={"file": ("extrato_invalid_category.pdf", b"%PDF-invalid-category", "application/pdf")},
-            headers=auth_headers,
-        )
+        },
+    )
 
     txs = await client.get("/transactions", headers=auth_headers)
     tx_id = txs.json()["items"][0]["id"]
@@ -120,21 +140,19 @@ async def test_update_transaction_rejects_unknown_category(client, auth_headers)
 
 
 @pytest.mark.anyio
-async def test_delete_transaction_success(client, auth_headers):
-    from unittest.mock import patch
-
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
+async def test_delete_transaction_success(client, auth_headers, db):
+    await _upload_and_process(
+        client,
+        db,
+        auth_headers,
+        b"%PDF-txdelete",
+        {
             "statement_type": "credit_card",
             "transactions": [
                 {"date": "2026-05-01", "description": "Para Deletar", "amount": 30, "type": "debit", "category": "Outros"}
             ],
-        }
-        await client.post(
-            "/statements/upload",
-            files={"file": ("extrato2.pdf", b"%PDF-txdelete", "application/pdf")},
-            headers=auth_headers,
-        )
+        },
+    )
 
     txs = await client.get("/transactions", headers=auth_headers)
     tx_id = txs.json()["items"][0]["id"]
@@ -147,20 +165,18 @@ async def test_delete_transaction_success(client, auth_headers):
 
 
 @pytest.mark.anyio
-async def test_list_transactions_pagination(client, auth_headers):
-    from unittest.mock import patch
-
+async def test_list_transactions_pagination(client, auth_headers, db):
     transactions = [
         {"date": f"2026-06-{str(i).zfill(2)}", "description": f"TX {i}", "amount": i * 10, "type": "debit", "category": "Outros"}
         for i in range(1, 8)
     ]
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": transactions}
-        await client.post(
-            "/statements/upload",
-            files={"file": ("extrato_pg.pdf", b"%PDF-pagination", "application/pdf")},
-            headers=auth_headers,
-        )
+    await _upload_and_process(
+        client,
+        db,
+        auth_headers,
+        b"%PDF-pagination",
+        {"statement_type": "credit_card", "transactions": transactions},
+    )
 
     page1 = await client.get("/transactions", params={"limit": 3, "offset": 0}, headers=auth_headers)
     page2 = await client.get("/transactions", params={"limit": 3, "offset": 3}, headers=auth_headers)

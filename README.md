@@ -16,6 +16,26 @@ Backend API for Camelbox - Financial Analysis SaaS.
 
 ## Background Jobs
 
-Celery worker code exists under `app/workers`, but the current production flow does not enqueue those tasks. Upload processing and feedback generation run synchronously through the FastAPI routers.
+Celery processes statement PDFs outside the FastAPI request cycle. The API accepts the upload, stores a `BankStatement` with `status="processing"`, enqueues a task, and returns immediately. The worker later updates the statement to `completed` or `error`.
 
-Celery integration is planned as a separate feature for VPS deployment, with API job enqueueing, worker process management, Redis/broker configuration, persisted status, and observability handled together.
+Run Redis locally:
+
+```bash
+redis-server
+```
+
+Run the API:
+
+```bash
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Run the worker:
+
+```bash
+uv run celery -A app.workers.celery_app.celery_app worker --loglevel=info
+```
+
+Required environment variables for VPS deployment include `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `APP_ENV=production`, `GEMINI_API_KEY`, `GEMINI_MODEL`, and the existing Stripe variables.
+
+Feedback generation still runs synchronously in this phase. It will move to Celery in a separate phase using the same status pattern.

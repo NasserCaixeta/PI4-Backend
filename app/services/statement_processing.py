@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.statements import BankStatement, Category, Transaction
@@ -59,6 +59,8 @@ async def process_statement_pdf(
     statement: BankStatement,
     pdf_bytes: bytes,
     extractor: Callable[[bytes], dict],
+    *,
+    replace_existing: bool = False,
 ) -> None:
     try:
         extraction = validate_extraction(extractor(pdf_bytes))
@@ -71,6 +73,9 @@ async def process_statement_pdf(
 
     cat_result = await db.execute(select(Category).where(Category.is_default == True))
     categories = {category.name: category.id for category in cat_result.scalars()}
+
+    if replace_existing:
+        await db.execute(delete(Transaction).where(Transaction.statement_id == statement.id))
 
     for tx in extraction.transactions:
         category_name = normalize_transaction_category(tx.description, tx.category)

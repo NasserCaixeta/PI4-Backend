@@ -51,6 +51,7 @@ class FeedbackListItem(BaseModel):
     month: int
     year: int
     status: str
+    error_message: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
 
@@ -62,6 +63,7 @@ class FeedbackDetailResponse(BaseModel):
     month: int
     year: int
     status: str
+    error_message: str | None = None
     subscriptions: list[SubscriptionItem] | None = None
     reducible_expenses: list[ReducibleExpenseItem] | None = None
     highlights: list[str] | None = None
