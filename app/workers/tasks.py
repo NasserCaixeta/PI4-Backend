@@ -104,30 +104,27 @@ async def process_spending_feedback(
 
         tx_result = await db.execute(
             select(
-                Transaction.date,
-                Transaction.description,
-                Transaction.amount,
-                Transaction.type,
+                Transaction,
                 Category.name.label("category"),
             )
             .join(BankStatement, Transaction.statement_id == BankStatement.id)
             .outerjoin(Category, Transaction.category_id == Category.id)
             .where(
                 BankStatement.user_id == feedback.user_id,
-                Transaction.date >= start,
-                Transaction.date <= end,
+                Transaction.billing_date >= start,
+                Transaction.billing_date <= end,
                 Transaction.type == "debit",
             )
         )
         transactions = [
             {
-                "date": str(row.date),
-                "description": row.description,
-                "amount": float(row.amount),
-                "type": row.type,
-                "category": row.category or "Outros",
+                "date": str(transaction.billing_date),
+                "description": transaction.description,
+                "amount": float(transaction.amount),
+                "type": transaction.type,
+                "category": category or "Outros",
             }
-            for row in tx_result
+            for transaction, category in tx_result
         ]
 
         analysis = analyzer(transactions)

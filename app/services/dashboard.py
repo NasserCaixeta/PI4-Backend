@@ -68,8 +68,8 @@ async def get_period_totals(
         .join(BankStatement)
         .where(
             BankStatement.user_id == user_id,
-            Transaction.date >= start,
-            Transaction.date <= end,
+            Transaction.billing_date >= start,
+            Transaction.billing_date <= end,
         )
     )
     row = result.one()
@@ -139,8 +139,8 @@ async def get_by_category(
         .join(BankStatement)
         .where(
             BankStatement.user_id == user_id,
-            Transaction.date >= start,
-            Transaction.date <= end,
+            Transaction.billing_date >= start,
+            Transaction.billing_date <= end,
             Transaction.type == "debit",
         )
         .group_by(Transaction.category_id)
@@ -156,8 +156,8 @@ async def get_by_category(
         .join(BankStatement)
         .where(
             BankStatement.user_id == user_id,
-            Transaction.date >= prev_start,
-            Transaction.date <= prev_end,
+            Transaction.billing_date >= prev_start,
+            Transaction.billing_date <= prev_end,
             Transaction.type == "debit",
         )
         .group_by(Transaction.category_id)

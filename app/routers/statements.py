@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_verified_email
 from app.database import get_db
 from app.models.auth import User
 from app.models.statements import BankStatement, Transaction
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/statements", tags=["Statements"])
 async def upload_statement(
     request: Request,
     file: UploadFile,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ):
     # Valida tipo de arquivo pelo header
@@ -133,8 +133,8 @@ async def delete_statement_month(
         .join(BankStatement)
         .where(
             BankStatement.user_id == user.id,
-            Transaction.date >= start,
-            Transaction.date <= end,
+            Transaction.billing_date >= start,
+            Transaction.billing_date <= end,
         )
     )
     transactions = tx_result.scalars().all()

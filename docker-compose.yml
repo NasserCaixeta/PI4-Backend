@@ -50,7 +50,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-camelbox}:${POSTGRES_PASSWORD:-camelbox}@postgres:5432/${POSTGRES_DB:-camelbox}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-me-local-docker-secret}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_KEY_ID: ${DATA_ENCRYPTION_KEY_ID:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-[]}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -58,6 +61,9 @@ services:
       STRIPE_SUPER_PRICE_ID: ${STRIPE_SUPER_PRICE_ID:-}
       STRIPE_MASTER_PRICE_ID: ${STRIPE_MASTER_PRICE_ID:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       FREE_ANALYSES_LIMIT: ${FREE_ANALYSES_LIMIT:-3}
       SUPER_ANALYSES_LIMIT: ${SUPER_ANALYSES_LIMIT:-20}
     healthcheck:
@@ -85,7 +91,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-camelbox}:${POSTGRES_PASSWORD:-camelbox}@postgres:5432/${POSTGRES_DB:-camelbox}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-me-local-docker-secret}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_KEY_ID: ${DATA_ENCRYPTION_KEY_ID:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-[]}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -93,6 +102,9 @@ services:
       STRIPE_SUPER_PRICE_ID: ${STRIPE_SUPER_PRICE_ID:-}
       STRIPE_MASTER_PRICE_ID: ${STRIPE_MASTER_PRICE_ID:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
       FREE_ANALYSES_LIMIT: ${FREE_ANALYSES_LIMIT:-3}
       SUPER_ANALYSES_LIMIT: ${SUPER_ANALYSES_LIMIT:-20}
     restart: unless-stopped

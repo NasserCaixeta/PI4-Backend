@@ -57,8 +57,8 @@ async def list_transactions(
     filters = []
     date_start, date_end = get_date_filter(month, year, start_date, end_date)
     if date_start and date_end:
-        filters.append(Transaction.date >= date_start)
-        filters.append(Transaction.date <= date_end)
+        filters.append(Transaction.billing_date >= date_start)
+        filters.append(Transaction.billing_date <= date_end)
     if category_id:
         filters.append(Transaction.category_id == category_id)
     if type:
@@ -75,7 +75,7 @@ async def list_transactions(
     total = total_result.scalar() or 0
 
     # Paginate
-    query = base_query.order_by(Transaction.date.desc()).limit(limit).offset(offset)
+    query = base_query.order_by(Transaction.billing_date.desc()).limit(limit).offset(offset)
     result = await db.execute(query)
     items = result.scalars().all()
 

@@ -6,7 +6,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_verified_email
 from app.database import get_db
 from app.models.auth import User
 from app.models.feedback import SpendingFeedback
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/feedback", tags=["Feedback"])
 async def generate_feedback(
     request: Request,
     data: FeedbackGenerateRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ):
     if not (1 <= data.month <= 12):
