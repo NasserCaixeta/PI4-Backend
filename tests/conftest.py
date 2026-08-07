@@ -9,6 +9,7 @@ from sqlalchemy import text
 # PostgreSQL local (camelbox-pg Docker container)
 TEST_DATABASE_URL = "postgresql+asyncpg://camelbox:camelbox@localhost:5432/camelbox_test"
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["REQUIRE_EMAIL_VERIFICATION"] = "false"
 
 from app.database import Base, get_db
 from app.main import app

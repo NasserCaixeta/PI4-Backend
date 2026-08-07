@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -23,7 +23,7 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(String(20))
     plan: Mapped[str] = mapped_column(String(20), default="free")
     analyses_used: Mapped[int] = mapped_column(default=0)
-    current_period_start: Mapped[datetime | None]
-    current_period_end: Mapped[datetime | None]
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="subscription")

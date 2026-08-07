@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.core.config import settings
+from app.core.dependencies import require_verified_email
 from app.models.auth import User
 from app.models.auth import EmailVerificationCode
 from app.services import email_verification
@@ -26,6 +29,25 @@ def test_user_email_verification_property_reflects_verified_timestamp():
     user.email_verified_at = datetime.utcnow()
 
     assert user.is_email_verified is True
+
+
+@pytest.mark.anyio
+async def test_verified_email_dependency_blocks_unverified_users(monkeypatch):
+    monkeypatch.setattr(settings, "REQUIRE_EMAIL_VERIFICATION", True)
+    user = User(email="unverified@example.com")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_verified_email(user)
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_verified_email_dependency_can_be_disabled_for_tests(monkeypatch):
+    monkeypatch.setattr(settings, "REQUIRE_EMAIL_VERIFICATION", False)
+    user = User(email="unverified@example.com")
+
+    assert await require_verified_email(user) is user
 
 
 @pytest.fixture
