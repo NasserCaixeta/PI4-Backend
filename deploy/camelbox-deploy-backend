@@ -12,6 +12,12 @@ compose_file="$deploy_dir/docker-compose.yml"
 versions_file="$deploy_dir/versions.env"
 candidate_file="$deploy_dir/.versions.$sha.env"
 image="ghcr.io/nassercaixeta/camelbox-backend:$sha"
+docker_config="$(mktemp -d /tmp/camelbox-docker-config.XXXXXX)"
+
+cleanup() {
+    rm -rf "$docker_config"
+}
+trap cleanup EXIT
 
 exec 9>/var/lock/camelbox-deploy.lock
 flock -w 900 9
@@ -45,7 +51,17 @@ rollback() {
 }
 trap rollback ERR
 
-docker pull "$image"
+ghcr_token=""
+IFS= read -r ghcr_token || [[ -n "$ghcr_token" ]]
+if [[ -z "$ghcr_token" ]]; then
+    echo "A temporary GHCR token is required" >&2
+    exit 65
+fi
+printf '%s' "$ghcr_token" | docker --config "$docker_config" login \
+    ghcr.io --username NasserCaixeta --password-stdin >/dev/null
+unset ghcr_token
+
+docker --config "$docker_config" pull "$image"
 
 compose=(
     docker compose

@@ -19,6 +19,9 @@ jobs:
   rollback:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
     environment:
       name: production
       url: https://api.camelbox.com.br/health
@@ -28,6 +31,7 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
       IMAGE_SHA: ${{ inputs.image_sha }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Validate requested version
         run: |
@@ -42,8 +46,10 @@ jobs:
 
       - name: Deploy selected version
         run: |
-          ssh -i ~/.ssh/camelbox_deploy -p "$VPS_PORT" \
-            "$VPS_USER@$VPS_HOST" "deploy-backend $IMAGE_SHA"
+          set -o pipefail
+          printf '%s' "$GHCR_TOKEN" | \
+            ssh -i ~/.ssh/camelbox_deploy -p "$VPS_PORT" \
+              "$VPS_USER@$VPS_HOST" "deploy-backend $IMAGE_SHA"
 
       - name: Verify public health endpoint
         run: |
