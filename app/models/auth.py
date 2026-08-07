@@ -24,6 +24,7 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text)
     auth_provider: Mapped[str | None] = mapped_column(String(50))
     password_hash: Mapped[str | None] = mapped_column(Text)
+    email_verified_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=func.now())
 
     statements: Mapped[list[BankStatement]] = relationship(back_populates="user")
@@ -31,6 +32,29 @@ class User(Base):
     subscription: Mapped[Subscription | None] = relationship(back_populates="user")
     free_usage: Mapped[FreeUsage | None] = relationship(back_populates="user")
     feedbacks: Mapped[list[SpendingFeedback]] = relationship(back_populates="user")
+    email_verification_codes: Mapped[list[EmailVerificationCode]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def is_email_verified(self) -> bool:
+        return self.email_verified_at is not None
+
+
+class EmailVerificationCode(Base):
+    __tablename__ = "email_verification_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    sent_to_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column()
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="email_verification_codes")
 
 
 class FreeUsage(Base):

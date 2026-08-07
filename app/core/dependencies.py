@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.security import decode_access_token
 from app.database import get_db
 from app.models.auth import User
@@ -61,4 +62,16 @@ async def get_current_user(
             detail="Usuário não encontrado",
         )
 
+    return user
+
+
+async def require_verified_email(user: User = Depends(get_current_user)) -> User:
+    if settings.REQUIRE_EMAIL_VERIFICATION and user.email_verified_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "email_not_verified",
+                "message": "Verifique seu email para continuar",
+            },
+        )
     return user

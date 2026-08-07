@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+sha="${1:-}"
+if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Expected a full 40-character commit SHA" >&2
+    exit 64
+fi
+
+deploy_dir=/opt/camelbox-deploy
+compose_file="$deploy_dir/docker-compose.yml"
+versions_file="$deploy_dir/versions.env"
+candidate_file="$deploy_dir/.versions.$sha.env"
+image="ghcr.io/nassercaixeta/camelbox-backend:$sha"
+docker_config="$(mktemp -d /tmp/camelbox-docker-config.XXXXXX)"
+
+cleanup() {
+    rm -rf "$docker_config"
+}
+trap cleanup EXIT
+
+exec 9>/var/lock/camelbox-deploy.lock
+flock -w 900 9
+
+test -f "$compose_file"
+test -e "$deploy_dir/.env"
+
+old_tag=""
+if [[ -f "$versions_file" ]]; then
+    old_tag="$(sed -n 's/^BACKEND_TAG=//p' "$versions_file")"
+fi
+
+printf 'BACKEND_TAG=%s\n' "$sha" > "$candidate_file"
+chmod 600 "$candidate_file"
+
+rollback() {
+    echo "Deployment failed; restoring the previous application image" >&2
+    if [[ "$old_tag" =~ ^[0-9a-f]{40}$ ]]; then
+        docker compose \
+            --project-name camelbox \
+            --file "$compose_file" \
+            --env-file "$versions_file" \
+            up --detach --no-deps --wait --wait-timeout 120 api celery_worker || true
+    else
+        docker compose \
+            --project-name camelbox \
+            --file /opt/camelbox/docker-compose.yml \
+            up --detach --no-build api celery_worker || true
+    fi
+    rm -f "$candidate_file"
+}
+trap rollback ERR
+
+ghcr_token=""
+IFS= read -r ghcr_token || [[ -n "$ghcr_token" ]]
+if [[ -z "$ghcr_token" ]]; then
+    echo "A temporary GHCR token is required" >&2
+    exit 65
+fi
+printf '%s' "$ghcr_token" | docker --config "$docker_config" login \
+    ghcr.io --username NasserCaixeta --password-stdin >/dev/null
+unset ghcr_token
+
+docker --config "$docker_config" pull "$image"
+
+compose=(
+    docker compose
+    --project-name camelbox
+    --file "$compose_file"
+    --env-file "$candidate_file"
+)
+
+"${compose[@]}" run --rm --no-deps api alembic upgrade head
+"${compose[@]}" up --detach --no-deps --wait --wait-timeout 120 api celery_worker
+
+curl --fail --show-error --silent \
+    --retry 5 --retry-delay 3 \
+    http://127.0.0.1:8000/health >/dev/null
+
+mv -f "$candidate_file" "$versions_file"
+chmod 600 "$versions_file"
+printf '%s backend %s previous=%s\n' \
+    "$(date --iso-8601=seconds)" "$sha" "${old_tag:-legacy}" \
+    >> "$deploy_dir/deployments.log"
+
+trap - ERR
+echo "Backend deployed: $sha"

@@ -9,7 +9,22 @@ from app.core.dependencies import get_current_user
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.models.auth import User
-from app.schemas.auth import LoginRequest, TokenResponse, UpdateProfileRequest, UserCreate, UserResponse
+from app.schemas.auth import (
+    EmailVerificationRequest,
+    LoginRequest,
+    ResendEmailVerificationResponse,
+    TokenResponse,
+    UpdateProfileRequest,
+    UserCreate,
+    UserResponse,
+)
+from app.services.email import EmailDeliveryError
+from app.services.email_verification import (
+    EmailVerificationCooldownError,
+    EmailVerificationError,
+    create_and_send_verification_code,
+    verify_email_code,
+)
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -52,6 +67,15 @@ async def register(request: Request, data: UserCreate, response: Response, db: A
         auth_provider="email",
     )
     db.add(user)
+    await db.flush()
+    try:
+        await create_and_send_verification_code(db, user)
+    except EmailDeliveryError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Nao foi possivel enviar o codigo de verificacao",
+        ) from exc
     await db.commit()
     await db.refresh(user)
 
@@ -93,6 +117,61 @@ async def logout(response: Response):
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.post("/verify-email", response_model=UserResponse)
+@limiter.limit("10/minute")
+async def verify_email(
+    request: Request,
+    data: EmailVerificationRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await verify_email_code(db, user, data.code)
+    except EmailVerificationError as exc:
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.post("/resend-verification", response_model=ResendEmailVerificationResponse)
+@limiter.limit("3/minute")
+async def resend_email_verification(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user.email_verified_at is not None:
+        return ResendEmailVerificationResponse(message="Email ja verificado")
+
+    try:
+        await create_and_send_verification_code(db, user, enforce_cooldown=True)
+    except EmailVerificationCooldownError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "verification_cooldown",
+                "message": "Aguarde antes de solicitar um novo codigo",
+                "resend_available_in_seconds": exc.retry_after_seconds,
+            },
+        ) from exc
+    except EmailDeliveryError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Nao foi possivel enviar o codigo de verificacao",
+        ) from exc
+
+    await db.commit()
+    return ResendEmailVerificationResponse(message="Codigo reenviado")
 
 
 @router.patch("/me", response_model=UserResponse)

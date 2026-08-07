@@ -59,8 +59,8 @@ async def test_statement_isolation_between_users(client, db):
     headers_a = {"Authorization": f"Bearer {reg_a.json()['access_token']}"}
     headers_b = {"Authorization": f"Bearer {reg_b.json()['access_token']}"}
 
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         upload = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-isolation", "application/pdf")},
@@ -73,20 +73,12 @@ async def test_statement_isolation_between_users(client, db):
 
 
 @pytest.mark.anyio
-async def test_upload_success(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
-            "statement_type": "credit_card",
-            "transactions": [
-                {
-                    "date": "2026-04-10",
-                    "description": "Fisia Nike Ecommer - Parcela 1/4",
-                    "amount": 100,
-                    "type": "debit",
-                    "category": "Outros",
-                }
-            ],
-        }
+async def test_upload_success_enqueues_processing_job(client, auth_headers):
+    with (
+        patch("app.routers.statements.process_statement") as mock_task,
+        patch("app.services.gemini.extract_transactions") as mock_extract,
+    ):
+        mock_task.delay.return_value = None
         response = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
@@ -95,56 +87,21 @@ async def test_upload_success(client, auth_headers):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "completed"
+        assert data["status"] == "processing"
         assert data["filename"] == "extrato.pdf"
-        assert data["statement_type"] == "credit_card"
-        mock_extract.assert_called_once()
-
-        detail_response = await client.get(f"/statements/{data['id']}", headers=auth_headers)
-        assert detail_response.status_code == 200
-        assert detail_response.json()["transactions"][0]["category"]["name"] == "Compras"
-
-
-@pytest.mark.anyio
-async def test_upload_increments_free_usage(client, db):
-    import uuid as uuid_module
-
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
-        # Registra usuário único para este teste
-        unique_email = f"free_usage_{uuid_module.uuid4().hex[:8]}@example.com"
-        reg_response = await client.post("/auth/register", json={
-            "email": unique_email,
-            "password": "12345678",
-        })
-        token = reg_response.json()["access_token"]
-        user_id = reg_response.json()["user"]["id"]
-        headers = {"Authorization": f"Bearer {token}"}
-
-        # Primeiro upload
-        await client.post(
-            "/statements/upload",
-            files={"file": ("extrato1.pdf", b"%PDF-fake", "application/pdf")},
-            headers=headers,
-        )
-
-        # Verifica que free_usage foi criado e incrementado
-        from sqlalchemy import select
-        from app.models.auth import FreeUsage
-
-        result = await db.execute(
-            select(FreeUsage).where(FreeUsage.user_id == uuid_module.UUID(user_id))
-        )
-        free_usage = result.scalar_one_or_none()
-        assert free_usage is not None
-        assert free_usage.analyses_used == 1
+        assert data["statement_type"] is None
+        mock_task.delay.assert_called_once()
+        statement_id, pdf_payload = mock_task.delay.call_args.args
+        assert statement_id == data["id"]
+        assert isinstance(pdf_payload, str)
+        mock_extract.assert_not_called()
 
 
 @pytest.mark.anyio
-async def test_upload_does_not_consume_free_usage_when_processing_fails(client, db):
+async def test_upload_does_not_increment_free_usage_until_worker_succeeds(client, db):
     import uuid as uuid_module
 
-    unique_email = f"failed_usage_{uuid_module.uuid4().hex[:8]}@example.com"
+    unique_email = f"free_usage_{uuid_module.uuid4().hex[:8]}@example.com"
     reg_response = await client.post("/auth/register", json={
         "email": unique_email,
         "password": "12345678",
@@ -153,15 +110,15 @@ async def test_upload_does_not_consume_free_usage_when_processing_fails(client, 
     user_id = reg_response.json()["user"]["id"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    with patch("app.routers.statements.extract_transactions", side_effect=ValueError("Gemini inválido")):
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         response = await client.post(
             "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-processing-fails", "application/pdf")},
+            files={"file": ("extrato1.pdf", b"%PDF-fake", "application/pdf")},
             headers=headers,
         )
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "Não foi possível processar o PDF"
+    assert response.status_code == 200
 
     from sqlalchemy import select
     from app.models.auth import FreeUsage
@@ -170,6 +127,20 @@ async def test_upload_does_not_consume_free_usage_when_processing_fails(client, 
         select(FreeUsage).where(FreeUsage.user_id == uuid_module.UUID(user_id))
     )
     assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.anyio
+async def test_upload_enqueue_failure_marks_statement_error(client, auth_headers):
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.side_effect = RuntimeError("redis unavailable")
+        response = await client.post(
+            "/statements/upload",
+            files={"file": ("extrato.pdf", b"%PDF-enqueue-fails", "application/pdf")},
+            headers=auth_headers,
+    )
+
+    assert response.status_code == 503
+    assert "enfileirar" in response.json()["detail"].lower()
 
 
 @pytest.mark.anyio
@@ -194,11 +165,11 @@ async def test_upload_paywall_limit(client, db):
     db.add(free_usage)
     await db.commit()
 
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         response = await client.post(
             "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
+            files={"file": ("extrato.pdf", b"%PDF-paywall", "application/pdf")},
             headers=headers,
         )
         assert response.status_code == 402
@@ -223,8 +194,8 @@ async def test_upload_super_plan_limit(client, db, monkeypatch):
     db.add(Subscription(user_id=uuid_module.UUID(user_id), status="active", plan="super", analyses_used=1))
     await db.commit()
 
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         response = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-super", "application/pdf")},
@@ -251,8 +222,8 @@ async def test_upload_master_plan_unlimited(client, db):
     db.add(Subscription(user_id=uuid_module.UUID(user_id), status="active", plan="master", analyses_used=999))
     await db.commit()
 
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         response = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-master", "application/pdf")},
@@ -270,12 +241,12 @@ async def test_list_statements_empty(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_list_statements_with_data(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         # Upload um statement
         await client.post(
             "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
+            files={"file": ("extrato.pdf", b"%PDF-list-data", "application/pdf")},
             headers=auth_headers,
         )
 
@@ -298,12 +269,12 @@ async def test_get_statement_not_found(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_get_statement_success(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         # Upload
         upload_response = await client.post(
             "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-fake", "application/pdf")},
+            files={"file": ("extrato.pdf", b"%PDF-get-success", "application/pdf")},
             headers=auth_headers,
         )
         statement_id = upload_response.json()["id"]
@@ -318,8 +289,8 @@ async def test_get_statement_success(client, auth_headers):
 
 @pytest.mark.anyio
 async def test_upload_duplicate_returns_conflict(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {"statement_type": "credit_card", "transactions": []}
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
         await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-duplicate", "application/pdf")},
@@ -333,14 +304,15 @@ async def test_upload_duplicate_returns_conflict(client, auth_headers):
         )
 
         assert response.status_code == 409
+        assert mock_task.delay.call_count == 1
 
 
 @pytest.mark.anyio
 async def test_upload_allows_retry_after_failed_same_pdf(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.side_effect = [
-            ValueError("Gemini inválido"),
-            {"statement_type": "credit_card", "transactions": []},
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.side_effect = [
+            RuntimeError("redis unavailable"),
+            None,
         ]
 
         failed = await client.post(
@@ -354,71 +326,47 @@ async def test_upload_allows_retry_after_failed_same_pdf(client, auth_headers):
             headers=auth_headers,
         )
 
-    assert failed.status_code == 422
+    assert failed.status_code == 503
     assert retry.status_code == 200
-    assert retry.json()["status"] == "completed"
+    assert retry.json()["status"] == "processing"
 
 
 @pytest.mark.anyio
-async def test_upload_rejects_invalid_transaction_without_saving_transactions(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
-            "statement_type": "credit_card",
-            "transactions": [
-                {
-                    "date": "2026-04-10",
-                    "description": "Compra inválida",
-                    "amount": 100,
-                    "type": "withdrawal",
-                    "category": "Compras",
-                }
-            ],
-        }
+async def test_delete_month_removes_only_selected_month(client, auth_headers, db):
+    from datetime import date
+    from decimal import Decimal
+    import uuid
 
-        response = await client.post(
-            "/statements/upload",
-            files={"file": ("extrato.pdf", b"%PDF-invalid-tx", "application/pdf")},
-            headers=auth_headers,
-        )
+    from app.models.statements import Transaction
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == "Não foi possível processar o PDF"
-
-    transactions = await client.get(
-        "/transactions",
-        params={"month": 4, "year": 2026},
-        headers=auth_headers,
-    )
-    assert transactions.json()["total"] == 0
-
-
-@pytest.mark.anyio
-async def test_delete_month_removes_only_selected_month(client, auth_headers):
-    with patch("app.routers.statements.extract_transactions") as mock_extract:
-        mock_extract.return_value = {
-            "statement_type": "bank_account",
-            "transactions": [
-                {
-                    "date": "2026-04-10",
-                    "description": "Abril",
-                    "amount": 100,
-                    "type": "debit",
-                    "category": "Outros",
-                },
-                {
-                    "date": "2026-05-10",
-                    "description": "Maio",
-                    "amount": 200,
-                    "type": "debit",
-                    "category": "Outros",
-                },
-            ],
-        }
-        await client.post(
+    with patch("app.routers.statements.process_statement") as mock_task:
+        mock_task.delay.return_value = None
+        upload = await client.post(
             "/statements/upload",
             files={"file": ("extrato.pdf", b"%PDF-months", "application/pdf")},
             headers=auth_headers,
         )
+    statement_id = uuid.UUID(upload.json()["id"])
+
+    db.add_all(
+        [
+            Transaction(
+                statement_id=statement_id,
+                date=date(2026, 4, 10),
+                description="Abril",
+                amount=Decimal("100"),
+                type="debit",
+            ),
+            Transaction(
+                statement_id=statement_id,
+                date=date(2026, 5, 10),
+                description="Maio",
+                amount=Decimal("200"),
+                type="debit",
+            ),
+        ]
+    )
+    await db.commit()
 
     response = await client.delete(
         "/statements/month",

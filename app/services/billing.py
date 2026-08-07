@@ -153,6 +153,8 @@ async def upsert_subscription(
         subscription = Subscription(user_id=user_id, status=status_value)
         db.add(subscription)
 
+    previous_period_start = subscription.current_period_start
+
     subscription.stripe_customer_id = stripe_customer_id or subscription.stripe_customer_id
     subscription.stripe_subscription_id = stripe_subscription_id or subscription.stripe_subscription_id
     subscription.status = status_value
@@ -160,7 +162,7 @@ async def upsert_subscription(
     subscription.current_period_start = current_period_start
     subscription.current_period_end = current_period_end
 
-    if current_period_start and subscription.current_period_start != current_period_start:
+    if current_period_start and previous_period_start != current_period_start:
         subscription.analyses_used = 0
 
     return subscription

@@ -25,6 +25,7 @@ class SpendingFeedback(Base):
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     subscriptions: Mapped[dict | None] = mapped_column(GenericJSON, nullable=True)
     reducible_expenses: Mapped[dict | None] = mapped_column(GenericJSON, nullable=True)
     highlights: Mapped[list | None] = mapped_column(GenericJSON, nullable=True)

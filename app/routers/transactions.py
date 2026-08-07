@@ -2,14 +2,14 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
 from app.models.auth import User
-from app.models.statements import BankStatement, Transaction
+from app.models.statements import BankStatement, Category, Transaction
 from app.schemas.transactions import (
     TransactionListResponse,
     TransactionResponse,
@@ -57,8 +57,8 @@ async def list_transactions(
     filters = []
     date_start, date_end = get_date_filter(month, year, start_date, end_date)
     if date_start and date_end:
-        filters.append(Transaction.date >= date_start)
-        filters.append(Transaction.date <= date_end)
+        filters.append(Transaction.billing_date >= date_start)
+        filters.append(Transaction.billing_date <= date_end)
     if category_id:
         filters.append(Transaction.category_id == category_id)
     if type:
@@ -75,7 +75,7 @@ async def list_transactions(
     total = total_result.scalar() or 0
 
     # Paginate
-    query = base_query.order_by(Transaction.date.desc()).limit(limit).offset(offset)
+    query = base_query.order_by(Transaction.billing_date.desc()).limit(limit).offset(offset)
     result = await db.execute(query)
     items = result.scalars().all()
 
@@ -121,7 +121,16 @@ async def update_transaction(
         raise HTTPException(status_code=404, detail="Transação não encontrada")
 
     if data.category_id is not None:
-        transaction.category_id = data.category_id
+        category_result = await db.execute(
+            select(Category).where(
+                Category.id == data.category_id,
+                or_(Category.is_default == True, Category.user_id == user.id),
+            )
+        )
+        category = category_result.scalar_one_or_none()
+        if category is None:
+            raise HTTPException(status_code=404, detail="Categoria não encontrada")
+        transaction.category_id = category.id
     if data.description is not None:
         transaction.description = data.description
 

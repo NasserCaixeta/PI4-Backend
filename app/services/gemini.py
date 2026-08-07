@@ -33,9 +33,16 @@ def extract_transactions(pdf_bytes: bytes) -> dict:
     - statement_type deve ser "credit_card" para fatura/cartão de crédito
     - statement_type deve ser "bank_account" para extrato de conta corrente/conta bancária com entradas e saídas reais
     - Se houver dúvida sobre o tipo do documento, use "credit_card"
+    - statement_reference_date deve ser uma data dentro do mês de referência da fatura/extrato, no formato YYYY-MM-DD
+    - Para fatura de cartão, billing_date é a data/mês em que a cobrança aparece nesta fatura
+    - Para compra parcelada, billing_date deve usar o mês desta fatura, NÃO o mês original da compra
+    - Para compra parcelada, purchase_date deve ser a data original da compra somente se aparecer de forma confiável no PDF; caso contrário use null
+    - Exemplo: fatura de setembro com "Parcela 3/6" de compra feita em junho deve ter billing_date em setembro e purchase_date em junho, se junho estiver explícito
 
     Para cada transação em transactions, retorne:
-    - date: data no formato YYYY-MM-DD
+    - date: mesma data de billing_date, para compatibilidade
+    - billing_date: data de cobrança/lançamento desta fatura ou extrato, no formato YYYY-MM-DD
+    - purchase_date: data original da compra, no formato YYYY-MM-DD, ou null quando não houver certeza
     - description: descrição da transação
     - amount: valor absoluto (sempre positivo)
     - type: "credit" para estornos/devoluções, "debit" para compras
@@ -57,6 +64,7 @@ def extract_transactions(pdf_bytes: bytes) -> dict:
     Retorne APENAS um JSON object, sem markdown ou explicações, neste formato:
     {
       "statement_type": "credit_card",
+      "statement_reference_date": "YYYY-MM-DD",
       "transactions": []
     }
     """
@@ -66,8 +74,6 @@ def extract_transactions(pdf_bytes: bytes) -> dict:
         {"mime_type": "application/pdf", "data": pdf_bytes}
     ])
 
-    print(f"[DEBUG] Gemini response.text: {repr(response.text[:500]) if response.text else 'NONE/EMPTY'}")
-    print(f"[DEBUG] Gemini finish_reason: {response.candidates[0].finish_reason if response.candidates else 'NO CANDIDATES'}")
     text = response.text.strip()
     # Remove markdown code block se Gemini envolver em ```json...```
     if text.startswith("```"):

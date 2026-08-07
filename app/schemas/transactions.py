@@ -15,6 +15,8 @@ class TransactionUpdate(BaseModel):
 class TransactionResponse(BaseModel):
     id: uuid.UUID
     date: date
+    billing_date: date
+    purchase_date: date | None
     description: str | None
     amount: Decimal
     type: str
