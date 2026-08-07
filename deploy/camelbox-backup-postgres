@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+backup_dir=/var/backups/camelbox
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+temporary="$backup_dir/.postgres-$timestamp.dump.tmp"
+destination="$backup_dir/postgres-$timestamp.dump"
+
+install -d -m 700 "$backup_dir"
+umask 077
+
+docker exec camelbox-postgres sh -c \
+    'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$temporary"
+test -s "$temporary"
+docker exec -i camelbox-postgres pg_restore --list < "$temporary" >/dev/null
+mv "$temporary" "$destination"
+sha256sum "$destination" > "$destination.sha256"
+
+find "$backup_dir" -maxdepth 1 -type f \
+    \( -name 'postgres-*.dump' -o -name 'postgres-*.dump.sha256' \) \
+    -mtime +14 -delete
+
+echo "PostgreSQL backup created: $destination"

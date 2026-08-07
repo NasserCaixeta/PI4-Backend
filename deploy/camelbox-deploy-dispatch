@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+read -r command argument extra <<< "${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ -n "${extra:-}" || ! "${argument:-}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid deployment request" >&2
+    exit 64
+fi
+
+case "$command" in
+    deploy-backend)
+        exec sudo /usr/local/sbin/camelbox-deploy-backend "$argument"
+        ;;
+    deploy-frontend-upload)
+        exec sudo /usr/local/sbin/camelbox-deploy-frontend "$argument"
+        ;;
+    rollback-frontend)
+        exec sudo /usr/local/sbin/camelbox-rollback-frontend "$argument"
+        ;;
+    *)
+        echo "Deployment command not allowed" >&2
+        exit 64
+        ;;
+esac

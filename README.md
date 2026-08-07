@@ -125,7 +125,19 @@ uv run pytest
 
 ## Deploy
 
-O repositório possui arquivos de configuração para ambientes como Railway e Render. Antes do deploy, confira:
+Pull requests executam testes, migrações e a validação da imagem Docker. Um
+push na `main` publica uma imagem imutável no GHCR e atualiza a VPS somente
+depois que todas as verificações passam.
+
+O deploy de produção:
+
+* Executa Alembic uma única vez.
+* Atualiza API e Celery com a mesma imagem.
+* Aguarda o health check da API.
+* Mantém a versão anterior disponível para rollback.
+* Preserva PostgreSQL, Redis e seus volumes.
+
+Antes do deploy, confira:
 
 * Variáveis de ambiente.
 * URL do banco PostgreSQL.
@@ -142,7 +154,7 @@ O repositório possui arquivos de configuração para ambientes como Railway e R
 * Expandir documentação dos endpoints.
 * Adicionar exemplos de payloads para autenticação, transações e extratos.
 * Documentar fluxo de pagamentos.
-* Adicionar pipeline de CI com testes e lint.
+* Expandir testes de integração das tarefas assíncronas.
 
 ## Autor
 

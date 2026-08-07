@@ -1,11 +1,9 @@
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.fastapi
+    image: ghcr.io/nassercaixeta/camelbox-backend:${BACKEND_TAG:?BACKEND_TAG must be set}
     container_name: camelbox-api
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
@@ -20,9 +18,7 @@ services:
     restart: unless-stopped
 
   celery_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.celery
+    image: ghcr.io/nassercaixeta/camelbox-backend:${BACKEND_TAG:?BACKEND_TAG must be set}
     container_name: camelbox-celery-worker
     depends_on:
       api:
@@ -31,8 +27,15 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-production}
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=info
     restart: unless-stopped
 
 networks:
   default:
     name: camelbox-network
+    external: true

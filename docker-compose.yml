@@ -35,7 +35,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.fastapi
+      dockerfile: Dockerfile
     container_name: camelbox-api
     ports:
       - "${API_PORT:-8000}:8000"
@@ -72,12 +72,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
 
   celery_worker:
     build:
       context: .
-      dockerfile: Dockerfile.celery
+      dockerfile: Dockerfile
     container_name: camelbox-celery-worker
     depends_on:
       postgres:
@@ -107,6 +111,12 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       FREE_ANALYSES_LIMIT: ${FREE_ANALYSES_LIMIT:-3}
       SUPER_ANALYSES_LIMIT: ${SUPER_ANALYSES_LIMIT:-20}
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=info
     restart: unless-stopped
 
 volumes:

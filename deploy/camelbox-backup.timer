@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Camelbox PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target
