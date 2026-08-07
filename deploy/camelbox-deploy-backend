@@ -39,6 +39,7 @@ rollback() {
         docker compose \
             --project-name camelbox \
             --file "$compose_file" \
+            --env-file "$deploy_dir/.env" \
             --env-file "$versions_file" \
             up --detach --no-deps --wait --wait-timeout 120 api celery_worker || true
     else
@@ -67,6 +68,7 @@ compose=(
     docker compose
     --project-name camelbox
     --file "$compose_file"
+    --env-file "$deploy_dir/.env"
     --env-file "$candidate_file"
 )
 
