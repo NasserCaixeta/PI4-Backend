@@ -67,6 +67,14 @@ jobs:
       - name: Validate production image
         run: docker build --tag camelbox-backend:test .
 
+      - name: Validate production Compose
+        env:
+          BACKEND_TAG: "0000000000000000000000000000000000000000"
+          POSTGRES_PASSWORD: ci-only-password
+        run: |
+          touch .env
+          docker compose --file docker-compose.prod.yml config --quiet
+
   publish:
     name: Publish image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

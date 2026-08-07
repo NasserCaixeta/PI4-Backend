@@ -8,7 +8,9 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-camelbox}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-camelbox}
       PORT: 8000
+      REDIS_URL: redis://redis:6379/0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -27,6 +29,8 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-camelbox}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-camelbox}
+      REDIS_URL: redis://redis:6379/0
     command:
       - celery
       - -A
