@@ -3,7 +3,7 @@ services:
     image: ghcr.io/nassercaixeta/camelbox-backend:${BACKEND_TAG:?BACKEND_TAG must be set}
     container_name: camelbox-api
     ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      - "${API_PORT:-127.0.0.1:8000}:8000"
     env_file:
       - .env
     environment:
